@@ -1,0 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ตัวช่วยเล็กน้อยให้พื้นหลังและฟอนต์ดูเรียบร้อย */
+html, body, #root { height: 100%; }
+body { @apply bg-gray-50 text-gray-800; }
