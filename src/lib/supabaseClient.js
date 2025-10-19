@@ -1,9 +1,4 @@
 // src/lib/supabaseClient.js
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-// ส่งออกได้ทั้งแบบ named และ default เพื่อกัน error ทุกแบบ
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-export default supabase;
+// อย่าสร้าง client ใหม่! แค่ re-export จากตัวหลัก
+export { default as supabase } from '../supabaseClient';
+export { supabase as default } from '../supabaseClient';

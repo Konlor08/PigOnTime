@@ -59,13 +59,15 @@ export default function UploadFactory() {
 
       {message && <p className="mt-2">{message}</p>}
 
-      {/* ✅ ปุ่มกลับ */}
-      <button
-        onClick={() => navigate("/adminhome")}
-        className="bg-blue-600 text-white px-4 py-2 rounded mt-4"
-      >
-        กลับไปหน้า Admin Dashboard
-      </button>
+      {/* ปุ่ม Back */}
+      <div className="mb-4 flex gap-2">
+        <button
+          onClick={() => navigate("/admin")}
+          className="px-4 py-2 rounded bg-gray-500 text-white hover:bg-gray-600"
+        >
+          ← Back to Dashboard
+        </button>
+      </div>
 
       {/* ✅ ปุ่ม Logout */}
       <button

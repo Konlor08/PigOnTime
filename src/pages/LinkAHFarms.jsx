@@ -1,304 +1,294 @@
-import { useEffect, useMemo, useState } from "react";
+// src/pages/LinkAHFarms.jsx
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import supabase from "../lib/supabaseClient"; // ต้องเป็น default export: export default supabase
+import supabase from "../lib/supabaseClient";
+
+function Pill({ status }) {
+const on = String(status).toLowerCase() === "active";
+return (
+<span
+className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
+on ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-700"
+}`}
+>
+{on ? "active" : "inactive"}
+</span>
+);
+}
+
+/** กล่องค้นหา/เลือก (ตัดแถว “No selection” ออก) */
+function SearchBox({ list, value, onChange, labelKey, placeholder = "Search..." }) {
+const [q, setQ] = useState("");
+
+// ล้างคำค้นเมื่อ selection ถูกรีเซ็ต
+useEffect(() => {
+if (!value) setQ("");
+}, [value]);
+
+const results = useMemo(() => {
+const s = q.trim().toLowerCase();
+if (!s) return list;
+return list.filter((x) => String(x[labelKey] || "").toLowerCase().includes(s));
+}, [q, list, labelKey]);
+
+return (
+<div className="rounded-xl border bg-white p-3">
+<input
+value={q}
+onChange={(e) => setQ(e.target.value)}
+placeholder={placeholder}
+className="mb-2 w-full rounded-md border px-3 py-2"
+autoFocus
+/>
+<div className="max-h-72 overflow-auto">
+{results.map((x) => (
+<button
+key={x.id}
+type="button"
+onClick={() => onChange(x.id)}
+className={`mb-1 w-full rounded-md border px-3 py-2 text-left ${
+value === x.id ? "bg-emerald-50" : ""
+}`}
+>
+{x[labelKey]}
+</button>
+))}
+</div>
+</div>
+);
+}
 
 export default function LinkAHFarms() {
-  const [ahs, setAhs] = useState([]);
-  const [ahId, setAhId] = useState("");
-  const [farms, setFarms] = useState([]);
-  const [links, setLinks] = useState([]); // ของ AH ที่เลือก
-  const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
+// current user (AH)
+let currentUser = null;
+try {
+currentUser = JSON.parse(localStorage.getItem("user") || "null");
+} catch {
+currentUser = null;
+}
 
-  // โหลดรายชื่อ AH (role = AnimalHusbandry)
-  useEffect(() => {
-    (async () => {
-      const { data, error } = await supabase
-        .from("app_users")
-        .select("id, full_name, phone")
-        .eq("role", "AnimalHusbandry")
-        .eq("active", true)
-        .order("full_name", { ascending: true });
+const ahId = currentUser?.id || null;
+const ahPin = currentUser?.pin || "";
+const ahLabel = `AH (${ahPin || "-"})`;
 
-      if (error) {
-        console.warn(error);
-        setMsg("โหลดรายชื่อ AH ไม่สำเร็จ");
-        return;
-      }
-      setAhs(data || []);
-      // เลือกคนแรกให้เลย ถ้ามี
-      if ((data || []).length && !ahId) setAhId(data[0].id);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+const [farms, setFarms] = useState([]); // ฟาร์มทั้งหมด
+const [linkedFarmIds, setLinkedFarmIds] = useState([]); // ฟาร์มที่ผูกกับ AH แล้ว
+const [selFarm, setSelFarm] = useState("");
+const [rows, setRows] = useState([]);
 
-  // โหลดฟาร์มทั้งหมด
-  useEffect(() => {
-    (async () => {
-      const { data, error } = await supabase
-        .from("farms")
-        .select(
-          "plant, house, branch, farm_name, sub_district, district, province"
-        )
-        .order("branch", { ascending: true })
-        .order("farm_name", { ascending: true });
+const [loading, setLoading] = useState(false);
+const [msg, setMsg] = useState("");
+const [err, setErr] = useState("");
 
-      if (error) {
-        console.warn(error);
-        setMsg("โหลดฟาร์มไม่สำเร็จ");
-        return;
-      }
-      setFarms(data || []);
-    })();
-  }, []);
+// ซ่อนข้อความสำเร็จ 3 วิ
+useEffect(() => {
+if (!msg) return;
+const t = setTimeout(() => setMsg(""), 3000);
+return () => clearTimeout(t);
+}, [msg]);
 
-  // โหลดลิงก์ของ AH คนที่เลือก
-  useEffect(() => {
-    if (!ahId) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from("ah_farm_links")
-        .select("id, plant, house, branch, farm_name, active")
-        .eq("profile_id", ahId);
+const loadFarms = useCallback(async () => {
+const { data, error } = await supabase
+.from("farms")
+.select("id, plant, branch, house, farm_name")
+.order("plant");
+if (error) setErr(error.message);
+else
+setFarms(
+(data || []).map((f) => ({
+id: f.id,
+label: `${f.plant} / ${f.branch} / ${f.house} / ${f.farm_name}`,
+}))
+);
+}, []);
 
-      if (error) {
-        console.warn(error);
-        setMsg("โหลดลิงก์ฟาร์มของ AH ไม่สำเร็จ");
-        return;
-      }
-      setLinks(data || []);
-    })();
-  }, [ahId]);
+const loadMyRelations = useCallback(async () => {
+if (!ahId) return;
+const { data, error } = await supabase
+.from("ah_farm_relations")
+.select(
+`
+id, status,
+farm:farms(id, plant, branch, house, farm_name)
+`
+)
+.eq("ah_id", ahId)
+.order("created_at", { ascending: false });
 
-  // map ไว้เช็กเร็ว ๆ ว่าฟาร์มไหนลิงก์แล้ว
-  const linkedKey = useMemo(() => {
-    const m = new Map();
-    for (const r of links) {
-      m.set(`${r.plant}|${r.house}|${r.branch}|${r.farm_name}`, r);
-    }
-    return m;
-  }, [links]);
+if (error) setErr(error.message);
+else {
+const list = data || [];
+setRows(
+list.map((r) => ({
+id: r.id,
+status: r.status,
+left: ahLabel,
+right: r.farm
+? `${r.farm.plant} / ${r.farm.branch} / ${r.farm.house} / ${r.farm.farm_name}`
+: "",
+}))
+);
+setLinkedFarmIds(list.map((r) => r.farm?.id).filter(Boolean));
+}
+}, [ahId, ahLabel]);
 
-  const filteredFarms = useMemo(() => {
-    const k = q.trim().toLowerCase();
-    if (!k) return farms;
-    return farms.filter((f) =>
-      `${f.branch} ${f.farm_name} ${f.house} ${f.plant} ${f.sub_district ?? ""} ${f.district ?? ""} ${f.province ?? ""}`
-        .toLowerCase()
-        .includes(k)
-    );
-  }, [q, farms]);
+useEffect(() => {
+setErr("");
+Promise.all([loadFarms(), loadMyRelations()]);
+}, [loadFarms, loadMyRelations]);
 
-  async function linkFarm(f) {
-    if (!ahId) return alert("กรุณาเลือก AH");
-    setBusy(true);
-    setMsg("");
-    const payload = {
-      profile_id: ahId,
-      plant: f.plant,
-      house: f.house,
-      branch: f.branch,
-      farm_name: f.farm_name,
-      active: true,
-    };
-    const { error } = await supabase.from("ah_farm_links").upsert(payload, {
-      onConflict: "profile_id,plant,house,branch,farm_name",
-    });
-    if (error) {
-      console.warn(error);
-      alert("ลิงก์ไม่สำเร็จ: " + error.message);
-    } else {
-      // refresh
-      const { data } = await supabase
-        .from("ah_farm_links")
-        .select("id, plant, house, branch, farm_name, active")
-        .eq("profile_id", ahId);
-      setLinks(data || []);
-    }
-    setBusy(false);
-  }
+// ฟาร์มที่ “ยังไม่ถูกเชื่อมกับ AH” เท่านั้น
+const selectableFarms = useMemo(() => {
+const linked = new Set(linkedFarmIds);
+return farms.filter((f) => !linked.has(f.id));
+}, [farms, linkedFarmIds]);
 
-  async function toggleActive(rec) {
-    setBusy(true);
-    const { error } = await supabase
-      .from("ah_farm_links")
-      .update({ active: !rec.active })
-      .eq("id", rec.id);
-    if (error) {
-      console.warn(error);
-      alert("สลับสถานะไม่สำเร็จ: " + error.message);
-    } else {
-      setLinks((old) =>
-        old.map((x) => (x.id === rec.id ? { ...x, active: !x.active } : x))
-      );
-    }
-    setBusy(false);
-  }
+async function addRelation() {
+if (!ahId) return setErr("ไม่พบผู้ใช้งานปัจจุบัน");
+if (!selFarm) return setErr("กรุณาเลือกฟาร์ม");
+setLoading(true);
+setErr("");
+try {
+const { error } = await supabase
+.from("ah_farm_relations")
+.insert([{ ah_id: ahId, farm_id: selFarm, status: "active" }]);
+if (error) throw error;
+setSelFarm(""); // รีเซ็ตหลังบันทึก
+setMsg("บันทึกสำเร็จ");
+await loadMyRelations(); // ฟาร์มที่เพิ่งผูกจะหายจากกล่องเลือก
+} catch (e) {
+setErr(e.message || "บันทึกล้มเหลว");
+} finally {
+setLoading(false);
+}
+}
 
-  async function unlink(rec) {
-    if (!confirm("ลบความเชื่อมโยงกับฟาร์มนี้?")) return;
-    setBusy(true);
-    const { error } = await supabase.from("ah_farm_links").delete().eq("id", rec.id);
-    if (error) {
-      console.warn(error);
-      alert("ลบลิงก์ไม่สำเร็จ: " + error.message);
-    } else {
-      setLinks((old) => old.filter((x) => x.id !== rec.id));
-    }
-    setBusy(false);
-  }
+async function toggleRelation(id, status) {
+const to = String(status).toLowerCase() === "active" ? "inactive" : "active";
+const { error } = await supabase
+.from("ah_farm_relations")
+.update({ status: to })
+.eq("id", id);
+if (error) setErr(error.message);
+else loadMyRelations();
+}
 
-  return (
-    <main className="max-w-6xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">Admin — เชื่อม AH กับฟาร์ม</h1>
-        <Link to="/admin" className="text-blue-600 hover:underline">
-          ◀ กลับ Dashboard
-        </Link>
-      </div>
+async function deleteRelation(id) {
+const { error } = await supabase.from("ah_farm_relations").delete().eq("id", id);
+if (error) setErr(error.message);
+else loadMyRelations();
+}
 
-      {/* เลือก AH */}
-      <div className="mb-4">
-        <label className="block text-sm mb-1">เลือก Animal Husbandry</label>
-        <select
-          className="border rounded px-3 py-2 w-full sm:w-96"
-          value={ahId}
-          onChange={(e) => setAhId(e.target.value)}
-        >
-          {ahs.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.full_name} {u.phone ? `(${u.phone})` : ""}
-            </option>
-          ))}
-        </select>
-      </div>
+return (
+<div className="min-h-screen bg-emerald-50">
+{/* Header */}
+<header className="bg-emerald-600 text-white">
+<div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+<h1 className="text-2xl font-semibold">เชื่อมโยงฉัน ↔ ฟาร์ม</h1>
+<Link
+to="/ah"
+className="rounded-md bg-white/10 px-3 py-2 text-sm hover:bg-white/20"
+>
+กลับหน้า Animal husbandry
+</Link>
+</div>
+</header>
 
-      {/* ค้นหา */}
-      <div className="mb-4">
-        <input
-          className="border rounded px-3 py-2 w-full"
-          placeholder="ค้นหา (branch / farm / house / plant / ตำบล / อำเภอ / จังหวัด)"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-      </div>
+{/* Content */}
+<main className="mx-auto max-w-6xl px-4 py-6">
+{msg && (
+<div className="mb-3 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-green-700">
+{msg}
+</div>
+)}
+{err && (
+<div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-red-700">
+{err}
+</div>
+)}
 
-      {msg && (
-        <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-          {msg}
-        </div>
-      )}
+{/* Selectors */}
+<div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+{/* Left: AH (locked) */}
+<div>
+<div className="mb-2 text-sm text-gray-700">Animal husbandry —</div>
+<div className="rounded-xl border bg-white p-3">
+<div className="text-gray-700">{ahLabel}</div>
+<div className="text-xs text-gray-500 mt-1">ล็อกเป็นผู้ใช้ปัจจุบัน</div>
+</div>
+</div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* ตารางฟาร์มทั้งหมด */}
-        <section>
-          <h2 className="font-semibold mb-2">ฟาร์มทั้งหมด</h2>
-          <div className="border rounded">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="p-2 text-left">Branch</th>
-                  <th className="p-2 text-left">Farm</th>
-                  <th className="p-2 text-left">House</th>
-                  <th className="p-2 text-left">Plant</th>
-                  <th className="p-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFarms.map((f) => {
-                  const key = `${f.plant}|${f.house}|${f.branch}|${f.farm_name}`;
-                  const lk = linkedKey.get(key);
-                  return (
-                    <tr key={key} className="border-t">
-                      <td className="p-2">{f.branch}</td>
-                      <td className="p-2">{f.farm_name}</td>
-                      <td className="p-2">{f.house}</td>
-                      <td className="p-2">{f.plant}</td>
-                      <td className="p-2 text-right">
-                        {lk ? (
-                          <span className="text-gray-500">เชื่อมแล้ว</span>
-                        ) : (
-                          <button
-                            disabled={busy || !ahId}
-                            onClick={() => linkFarm(f)}
-                            className="px-2 py-1 rounded bg-blue-600 text-white disabled:opacity-50"
-                          >
-                            Link
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {!filteredFarms.length && (
-                  <tr>
-                    <td className="p-3 text-center text-gray-500" colSpan={5}>
-                      ไม่มีข้อมูล
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+{/* Right: Farm search */}
+<div>
+<div className="mb-2 text-sm text-gray-700">เลือกฟาร์ม —</div>
+<SearchBox
+list={selectableFarms}
+value={selFarm}
+onChange={setSelFarm}
+labelKey="label"
+placeholder="Search..."
+/>
+</div>
+</div>
 
-        {/* ตารางฟาร์มที่เชื่อมกับ AH */}
-        <section>
-          <h2 className="font-semibold mb-2">ฟาร์มที่เชื่อมกับ AH</h2>
-          <div className="border rounded">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="p-2 text-left">Branch</th>
-                  <th className="p-2 text-left">Farm</th>
-                  <th className="p-2 text-left">House</th>
-                  <th className="p-2 text-left">Plant</th>
-                  <th className="p-2 text-left">สถานะ</th>
-                  <th className="p-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {links.map((r) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="p-2">{r.branch}</td>
-                    <td className="p-2">{r.farm_name}</td>
-                    <td className="p-2">{r.house}</td>
-                    <td className="p-2">{r.plant}</td>
-                    <td className="p-2">
-                      <button
-                        disabled={busy}
-                        onClick={() => toggleActive(r)}
-                        className={`px-2 py-1 rounded ${
-                          r.active ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-700"
-                        }`}
-                      >
-                        {r.active ? "Active" : "Inactive"}
-                      </button>
-                    </td>
-                    <td className="p-2 text-right">
-                      <button
-                        disabled={busy}
-                        onClick={() => unlink(r)}
-                        className="px-2 py-1 rounded bg-red-600 text-white disabled:opacity-50"
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {!links.length && (
-                  <tr>
-                    <td className="p-3 text-center text-gray-500" colSpan={6}>
-                      ยังไม่มีการเชื่อม
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-    </main>
-  );
+<button
+type="button"
+disabled={loading}
+onClick={addRelation}
+className="rounded-md bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:opacity-60"
+>
+{loading ? "Saving..." : "Create Relation"}
+</button>
+
+{/* Table */}
+<div className="mt-4 overflow-x-auto rounded-xl border bg-white">
+<table className="min-w-full text-sm">
+<thead className="bg-gray-50 text-gray-700">
+<tr>
+<th className="px-3 py-2 text-left">Left (Animal husbandry)</th>
+<th className="px-3 py-2 text-left">Right (Farm)</th>
+<th className="px-3 py-2 text-left">Status</th>
+<th className="px-3 py-2 text-left">Actions</th>
+</tr>
+</thead>
+<tbody>
+{rows.length === 0 ? (
+<tr>
+<td colSpan={4} className="px-3 py-6 text-center text-gray-500">
+No data
+</td>
+</tr>
+) : (
+rows.map((r) => (
+<tr key={r.id} className="border-t">
+<td className="px-3 py-2">{r.left}</td>
+<td className="px-3 py-2">{r.right}</td>
+<td className="px-3 py-2">
+<Pill status={r.status} />
+</td>
+<td className="px-3 py-2">
+<div className="flex gap-2">
+<button
+className="rounded-md bg-indigo-600 px-2.5 py-1 text-white hover:bg-indigo-700"
+onClick={() => toggleRelation(r.id, r.status)}
+>
+Toggle
+</button>
+<button
+className="rounded-md border px-2.5 py-1 hover:bg-gray-50"
+onClick={() => deleteRelation(r.id)}
+>
+Delete
+</button>
+</div>
+</td>
+</tr>
+))
+)}
+</tbody>
+</table>
+</div>
+</main>
+</div>
+);
 }

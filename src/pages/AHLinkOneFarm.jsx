@@ -67,7 +67,7 @@ export default function AHLinkOneFarm() {
 
   return (
     <main className="max-w-3xl mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">AH — เพิ่มฟาร์มทีละรายการ & อัปเดตพิกัด</h1>
+      <h1 className="text-2xl font-bold mb-4">Animal husbrandry — เพิ่มฟาร์มทีละรายการ & อัปเดตพิกัด</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-white border rounded p-4">
         <label className="text-sm">
