@@ -254,7 +254,7 @@ export default function AHRoutePhotosLite() {
 
       // หา/นับอัลบั้มรูป
       const { data: albums } = await supabase
-        .from("plan_route_albums")
+        .from("route_photo_albums")
         .select("id, group_key")
         .in("group_key", all.map((g) => g.group_key));
       const albumByKey = new Map((albums || []).map((a) => [a.group_key, a.id]));
@@ -262,7 +262,7 @@ export default function AHRoutePhotosLite() {
 
       let countByAlbum = new Map();
       if (ids.length) {
-        const { data: ph } = await supabase.from("plan_route_photos").select("id, album_id").in("album_id", ids);
+        const { data: ph } = await supabase.from("route_photo_files").select("id, album_id").in("album_id", ids);
         countByAlbum = new Map();
         for (const r of ph || []) countByAlbum.set(r.album_id, (countByAlbum.get(r.album_id) || 0) + 1);
       }
@@ -299,14 +299,14 @@ export default function AHRoutePhotosLite() {
       if (!sel) return;
 
       const { data: existed } = await supabase
-        .from("plan_route_albums")
+        .from("route_photo_albums")
         .select("id")
         .eq("group_key", sel.group_key)
         .maybeSingle();
       let aid = existed?.id;
       if (!aid) {
         const { data: ins, error: eIns } = await supabase
-          .from("plan_route_albums")
+          .from("route_photo_albums")
           .insert({
             group_key: sel.group_key,
             delivery_date: sel.date,
@@ -395,12 +395,13 @@ export default function AHRoutePhotosLite() {
         const { data: pub } = await supabase.storage.from("route-photos").getPublicUrl(path);
 
         const w = weather || null;
-        const { error: ei } = await supabase.from("plan_route_photos").insert({
+        const { error: ei } = await supabase.from("route_photo_files").insert({
           album_id: albumId,
           note,
           file_url: pub.publicUrl,
           file_name: path,
           file_bytes: f.size,
+          mime_type: f.type || "image/jpeg",
           weather_at: new Date().toISOString(),
           weather_source: "open-meteo",
           temp_c: w?.temp ?? null,
@@ -434,7 +435,7 @@ export default function AHRoutePhotosLite() {
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <h1 className="text-2xl font-semibold">อัปโหลดรูปสภาพเส้นทาง (คิววันนี้ → +7 วัน)</h1>
           <Link to="/ah" className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20">
-            กลับหน้า Animal husbrandry
+            กลับหน้า Animal husbandry
           </Link>
         </div>
       </header>

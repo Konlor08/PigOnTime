@@ -324,7 +324,7 @@ export default function CatchingDesk() {
         .eq("id", docAlbum.id);
       if (error) throw error;
 
-      toastOk("ส่งกลับแก้ไขให้ Animal husbrandry แล้ว");
+      toastOk("ส่งกลับแก้ไขให้ Animal husbandry แล้ว");
       closeDocs();
       loadQueues();
     } catch (e) {
@@ -423,7 +423,7 @@ export default function CatchingDesk() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Pill color={r.ah_doc_status === "need_fix" ? "red" : r.ah_doc_status === "ok" ? "green" : "slate"}>
-                      Animal husbrandry Docs: {r.ah_doc_status}
+                      Animal husbandry Docs: {r.ah_doc_status}
                     </Pill>
                     <button
                       type="button"
@@ -434,7 +434,7 @@ export default function CatchingDesk() {
                           ? "bg-amber-50 border-amber-300 hover:bg-amber-100"
                           : "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
                       }`}
-                      title={canOpenDocs ? "เปิดดูเอกสาร Animal husbrandry" : "ไม่มีอัลบั้มเอกสารในวันนี้"}
+                      title={canOpenDocs ? "เปิดดูเอกสาร Animal husbandry" : "ไม่มีอัลบั้มเอกสารในวันนี้"}
                     >
                       ดูเอกสาร
                     </button>
@@ -532,7 +532,7 @@ export default function CatchingDesk() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="w-full max-w-2xl bg-white rounded-xl shadow border border-amber-200">
             <div className="px-4 py-3 bg-amber-100 border-b border-amber-200 rounded-t-xl flex items-center justify-between">
-              <div className="font-semibold">เอกสารจาก Animal husbrandry</div>
+              <div className="font-semibold">เอกสารจาก Animal husbandry</div>
               <button onClick={closeDocs} className="rounded-md px-2 py-1 border border-amber-300 hover:bg-amber-200">
                 ปิด
               </button>

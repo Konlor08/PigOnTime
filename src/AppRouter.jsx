@@ -109,7 +109,7 @@ export default function AppRouter() {
         <Route path="/ah/docs/upload" element={<AHPlanDocsLite />} />
         <Route path="/ah/catch/confirm" element={<AHCatchTeamLite />} />
         <Route path="/ah/issues" element={<AHReportIssuesLite />} />
-        <Route path="/ah/status />" element={<AHDesk />} />
+        <Route path="/ah/status" element={<AHDesk />} />
       </Route>
 
       {/* catching */}

@@ -176,13 +176,15 @@ const { data: rel, error: e1 } = await supabase
 .eq("ah_id", me.id);
 if (e1) throw e1;
 const myFarms = (rel || []).map((r) => r.farms).filter(Boolean);
+const farmById = new Map(myFarms.map((f) => [f.id, f]));
+
 
 // 2) แผนช่วง -7..+7
 const from = minusDaysISO(7);
 const to = plusDaysISO(7);
 const { data: plans, error: e2 } = await supabase
 .from("planning_plan_full")
-.select("id, delivery_date, plant, branch, house, farm_name, factory")
+.select("id, delivery_date, farm_id, plant, branch, house, farm_name, factory")
 .gte("delivery_date", from)
 .lte("delivery_date", to);
 if (e2) throw e2;
@@ -190,13 +192,16 @@ if (e2) throw e2;
 // จับคู่ทีละแผน/เที่ยว
 const items = [];
 for (const p of plans || []) {
-const f = myFarms.find(
-(x) =>
-(x.plant || "") === (p.plant || "") &&
-(x.branch || "") === (p.branch || "") &&
-(x.house || "") === (p.house || "") &&
-(x.farm_name || "") === (p.farm_name || "")
-);
+let f = p.farm_id ? farmById.get(p.farm_id) : null;
+if (!f) {
+  f = myFarms.find(
+    (x) =>
+      (x.plant || "") === (p.plant || "") &&
+      (x.branch || "") === (p.branch || "") &&
+    (x.house || "") === (p.house || "") &&
+    (x.farm_name || "") === (p.farm_name || "")
+  );
+}
 if (!f) continue;
 items.push({
 plan_id: p.id,

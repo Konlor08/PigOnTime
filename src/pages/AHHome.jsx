@@ -67,7 +67,7 @@ export default function AHHome() {
               onClick={handleLogout}
               className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
             >
-              Logout
+              กลับหน้า Animal husbandry
             </button>
           </div>
         </div>
@@ -139,13 +139,6 @@ export default function AHHome() {
             to="/ah/status"
             title="ที่อยู่รถระหว่างเดินทาง"
             desc="เช็คตำแหน่งรถขณะมุ่งหน้าโรงงานตามแผน"
-          />
-
-          {/* สถานะการจัดส่งตามแผน */}
-          <CardLink
-            to="/ah/status"
-            title="สถานะการจัดส่งตามแผน"
-            desc="ดูสถานะจริงเทียบแผน (จำกัดเฉพาะฟาร์มที่ผูกกับฉัน)"
           />
         </div>
       </main>

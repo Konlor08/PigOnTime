@@ -196,7 +196,7 @@ return (
 <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
 <h1 className="text-2xl font-semibold">สถานะการจัดส่งตามแผน</h1>
 <Link to="/ah" className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20">
-กลับหน้า Animal husbrandry
+กลับหน้า Animal husbandry
 </Link>
 </div>
 </header>
