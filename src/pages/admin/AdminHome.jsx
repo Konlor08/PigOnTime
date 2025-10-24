@@ -40,6 +40,7 @@ const items = [
 { title: "จัดการผู้ใช้", desc: "เพิ่ม / แก้ไข สิทธิ์และสถานะผู้ใช้", to: "/admin/users" },
 { title: "จัดการฟาร์ม", desc: "เพิ่ม แก้ไข สถานะฟาร์ม", to: "/admin/farms" },
 { title: "จัดการโรงงาน", desc: "เพิ่ม แก้ไข สถานะโรงงาน", to: "/admin/factories" },
+{ title: "เชื่อม Planner ↔ SITE", desc: "Planner ↔ SITE", to: "/admin/planning-sites" },
 { title: "จัดการรถขนส่ง", desc: "เพิ่มรถใหม่ และสถานะ", to: "/admin/trucks" },
 { title: "จัดการความสัมพันธ์", desc: "ฟาร์ม ↔ นักวิชาการ ↔ โรงงาน ↔ คนขับ/รถ", to: "/admin/relations" },
 ];

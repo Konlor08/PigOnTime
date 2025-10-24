@@ -15,13 +15,16 @@ import AdminFarmUpload from "./pages/admin/AdminFarmUpload.jsx";
 import AdminFactories from "./pages/admin/AdminFactories.jsx";
 import AdminTrucks from "./pages/admin/AdminTrucks.jsx";
 import AdminRelations from "./pages/admin/AdminRelations.jsx";
+import LinkPlanningSites from "./pages/admin/LinkPlanningSites.jsx";
 
-/* ---------- planning (เท่าที่ใช้อยู่) ---------- */
+/* ---------- planning ---------- */
 import PlanningHome from "./pages/PlanningHome.jsx";
 import UploadPlanning from "./pages/UploadPlanning.jsx";
-import TransportStatus from "./pages/TransportStatus.jsx";
+import planningdesk from "./pages/Planningdesk.jsx";
+import PlanningReportIssues from "./pages/PlanningReportIssues.jsx";
 
-/* ---------- AH (เพิ่มเท่าที่จำเป็น) ---------- */
+
+/* ---------- AH  ---------- */
 import AHHome from "./pages/AHHome.jsx";
 import AHFarmAdd from "./pages/AHFarmAdd.jsx";
 import LinkAHFarms from "./pages/LinkAHFarms.jsx";
@@ -33,20 +36,22 @@ import AHPlanDocsLite from "./pages/AHPlanDocsLite.jsx" ;
 import AHCatchTeamLite from "./pages/AHCatchTeamLite.jsx";
 import AHReportIssuesLite from "./pages/AHReportIssuesLite.jsx";
 import AHPlanStatus from "./pages/AHPlanStatus.jsx";
-import FactoryDesk from "./pages/FactoryDesk.jsx";
-import DriverDesk from "./pages/DriverDesk.jsx";
-import ManagerDesk from "./pages/ManagerDesk.jsx";
 import AHDesk from "./pages/AHDesk.jsx";
 
+/* ---------- Factory ---------- */
+import FactoryDesk from "./pages/FactoryDesk.jsx";
 
+/* ---------- Driver ---------- */
+import DriverDesk from "./pages/DriverDesk.jsx";
+
+/* ---------- Manager ---------- */
+import ManagerDesk from "./pages/ManagerDesk.jsx";
 
 
 /* ---------- Catching ---------- */
 import CatchingDesk from "./pages/CatchingDesk.jsx";
 
 /* ---------- driver ---------- */
-
-
 
 /* ---------- helpers ---------- */
 function getUser() {
@@ -88,13 +93,15 @@ export default function AppRouter() {
         <Route path="/admin/factories" element={<AdminFactories />} />
         <Route path="/admin/trucks" element={<AdminTrucks />} />
         <Route path="/admin/relations" element={<AdminRelations />} />
+        <Route path="/admin/planning-sites" element={<LinkPlanningSites />} />
       </Route>
 
       {/* planning */}
       <Route element={<PrivateRoute allow={["planning"]} />}>
         <Route path="/planning" element={<PlanningHome />} />
         <Route path="/planning/upload" element={<UploadPlanning />} />
-        <Route path="/planning/transport" element={<TransportStatus />} />
+        <Route path="/planning/transport" element={<planningdesk />} />
+        <Route path="/planning/issues"element ={<PlanningReportIssues />} />
       </Route>
 
       {/* animal husbandry (ใหม่) */}

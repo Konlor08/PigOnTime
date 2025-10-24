@@ -1,9 +1,9 @@
-// src/pages/AHCatchTeamLite.jsx
+// src/pages/AHPlanDocsLite.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { supabase } from "../supabaseClient";
+import supabase from "../supabaseClient";
 
-/* ---------- Banner (success 3s / error ค้าง) ---------- */
+/* ---------- Banner ---------- */
 function Banner({ type = "info", children }) {
   const color =
     type === "error"
@@ -20,6 +20,8 @@ const plusDaysISO = (n) => {
   d.setDate(d.getDate() + n);
   return iso(d);
 };
+const isImage = (mt) => /^image\//i.test(mt || "");
+const isPdf = (mt) => /^application\/pdf$/i.test(mt || "");
 const norm = (s) =>
   String(s ?? "")
     .trim()
@@ -32,17 +34,69 @@ function farmLabel(f) {
   return `${code} ${f.farm_name || ""}`.trim();
 }
 
-/* ---------- รายการคิว + แถบสี ---------- */
+/* ---------- image compress ≤1MB ---------- */
+async function fileToImage(file) {
+  const dataUrl = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
+  });
+  const img = new Image();
+  await new Promise((res, rej) => {
+    img.onload = res;
+    img.onerror = rej;
+    img.src = dataUrl;
+  });
+  return img;
+}
+async function compressImage(file, { maxEdge = 1600, targetBytes = 1_000_000, q0 = 0.85 } = {}) {
+  const img = await fileToImage(file);
+  let w = img.width,
+    h = img.height;
+  if (Math.max(w, h) > maxEdge) {
+    if (w >= h) {
+      h = Math.round(h * (maxEdge / w));
+      w = maxEdge;
+    } else {
+      w = Math.round(w * (maxEdge / h));
+      h = maxEdge;
+    }
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+
+  const toBlob = (q) => new Promise((r) => canvas.toBlob(r, "image/jpeg", q));
+  let q = q0,
+    blob = await toBlob(q);
+  while (blob && blob.size > targetBytes && q > 0.5) {
+    q -= 0.07;
+    blob = await toBlob(q);
+  }
+  let tries = 0;
+  while (blob && blob.size > targetBytes && tries < 2) {
+    tries++;
+    canvas.width = Math.round(canvas.width * 0.85);
+    canvas.height = Math.round(canvas.height * 0.85);
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    q = Math.max(0.5, q - 0.07);
+    blob = await toBlob(q);
+  }
+  if (!blob) throw new Error("แปลงรูปไม่สำเร็จ");
+  if (blob.size > targetBytes) throw new Error(`ไฟล์รูปยังเกิน 1MB (${Math.round(blob.size / 1024)} KB)`);
+  return new File([blob], `${(file.name || "image").split(".")[0]}.jpg`, { type: "image/jpeg" });
+}
+
+/* ---------- Search list (มีแถบสี) ---------- */
 function SearchBox({ list, value, onChange }) {
   const [q, setQ] = useState("");
   const results = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return list;
-    return list.filter((x) =>
-      [x.date, x.factory, farmLabel(x.farm)].join(" ").toLowerCase().includes(s)
-    );
+    return list.filter((x) => [x.date, x.factory, farmLabel(x.farm)].join(" ").toLowerCase().includes(s));
   }, [q, list]);
-
   return (
     <div className="rounded-xl border bg-white/90 p-3">
       <input
@@ -61,13 +115,12 @@ function SearchBox({ list, value, onChange }) {
               value?.group_key === g.group_key ? "ring-2 ring-emerald-500" : ""
             }`}
           >
-            {/* แถบสีด้านบน */}
             <div className="h-1 w-full bg-emerald-600 mb-2" />
             <div className="font-medium">
               {g.date} • {farmLabel(g.farm)}
             </div>
             <div className="text-xs text-gray-600">
-              โรงงาน: {g.factory || "-"} · แผน {g.plan_count} รอบ
+              โรงงาน: {g.factory || "-"} · แผน {g.plan_count} รอบ {g.returned_for_fix ? "· (ตีกลับ)" : ""}
             </div>
           </button>
         ))}
@@ -78,8 +131,7 @@ function SearchBox({ list, value, onChange }) {
 }
 
 /* ---------- Page ---------- */
-export default function AHCatchTeamLite() {
-  // อ่านผู้ใช้จาก localStorage
+export default function AHPlanDocsLite() {
   let me = null;
   try {
     me = JSON.parse(localStorage.getItem("user") || "null");
@@ -93,24 +145,25 @@ export default function AHCatchTeamLite() {
 
   const [groups, setGroups] = useState([]);
   const [sel, setSel] = useState(null);
-
-  const [teamCount, setTeamCount] = useState("");
-  const [memberCount, setMemberCount] = useState("");
+  const [albumId, setAlbumId] = useState(null);
   const [note, setNote] = useState("");
 
+  const [files, setFiles] = useState([]); // [{file, previewUrl, mime}]
+  const maxFiles = 8;
+
   const onAnyAction = (fn) => async (...args) => {
-    if (err) setErr(""); // error ค้างไว้จนกดปุ่มใดๆ
+    if (err) setErr("");
     return fn?.(...args);
   };
 
-  /* โหลดคิว: วันนี้ → +7 วัน และเฉพาะรายการที่ยัง "ไม่เคยยืนยัน" */
+  /* โหลดคิว: วันนี้→+7 วัน ที่ยังไม่มีไฟล์ หรือถูกตีกลับ */
   const loadPending = useCallback(async () => {
     setErr("");
     setBusy(true);
     try {
       if (!me?.id) throw new Error("ไม่พบผู้ใช้ปัจจุบัน");
 
-      // 1) ฟาร์มที่ฉันดูแล (active)
+      // ฟาร์มที่ฉันดูแล (ใช้ alias ให้ค่าอยู่ใต้ key 'farm')
       const { data: rel, error: e1 } = await supabase
         .from("ah_farm_relations")
         .select("farm_id, farm:farms(id, plant, branch, house, farm_name)")
@@ -118,9 +171,11 @@ export default function AHCatchTeamLite() {
         .eq("status", "active");
       if (e1) throw e1;
       const myFarms = (rel || []).map((r) => r.farm).filter(Boolean);
+
+      // map เพื่อ match ด้วย id เร็วๆ
       const farmById = new Map(myFarms.map((f) => [f.id, f]));
 
-      // 2) แผนช่วงวันนี้..+7
+      // แผนวันนี้..+7 (ดึง farm_id มาด้วย)
       const start = todayISO();
       const end = plusDaysISO(7);
       const { data: plans, error: e2 } = await supabase
@@ -130,10 +185,11 @@ export default function AHCatchTeamLite() {
         .lte("delivery_date", end);
       if (e2) throw e2;
 
-      // 3) รวมเป็น group (วัน::ฟาร์ม)
+      // จับคู่: ใช้ id ก่อน; ไม่เจอค่อยใช้ normalize เทียบ 4 คีย์
       const map = new Map();
       for (const p of plans || []) {
         let f = null;
+
         if (p.farm_id) f = farmById.get(p.farm_id);
         if (!f) {
           f = myFarms.find(
@@ -144,16 +200,15 @@ export default function AHCatchTeamLite() {
               norm(x.farm_name) === norm(p.farm_name)
           );
         }
-        if (!f) continue; // ไม่ใช่ฟาร์มในความดูแล
+        if (!f) continue;
 
         const date = iso(p.delivery_date);
         const key = `${date}::${f.id}`;
         const cur =
-          map.get(key) || { group_key: key, date, farm: f, factory: p.factory || null, plan_count: 0 };
+          map.get(key) || { group_key: key, date, farm: f, factory: p.factory || null, plan_count: 0, returned_for_fix: false };
         cur.plan_count += 1;
         map.set(key, cur);
       }
-
       const all = Array.from(map.values());
       if (!all.length) {
         setGroups([]);
@@ -161,14 +216,32 @@ export default function AHCatchTeamLite() {
         return;
       }
 
-      // 4) เอาเฉพาะที่ "ยังไม่เคยยืนยัน"
-      const { data: confs } = await supabase
-        .from("plan_catcher_confirms")
-        .select("group_key");
-      const done = new Set((confs || []).map((x) => x.group_key));
+      // โหลดสถานะอัลบั้ม + นับไฟล์
+      const { data: albums } = await supabase
+        .from("plan_doc_albums")
+        .select("id, group_key, returned_for_fix")
+        .in("group_key", all.map((g) => g.group_key));
 
+      const idByKey = new Map((albums || []).map((a) => [a.group_key, a.id]));
+      const retByKey = new Map((albums || []).map((a) => [a.group_key, a.returned_for_fix]));
+      const ids = (albums || []).map((a) => a.id);
+
+      let countByAlbum = new Map();
+      if (ids.length) {
+        const { data: fs } = await supabase.from("plan_doc_files").select("id, album_id").in("album_id", ids);
+        for (const r of fs || []) countByAlbum.set(r.album_id, (countByAlbum.get(r.album_id) || 0) + 1);
+      }
+
+      // เงื่อนไขคิว: ยังไม่มีไฟล์ หรือถูกตีกลับ
       const pending = all
-        .filter((g) => !done.has(g.group_key))
+        .filter((g) => {
+          const aid = idByKey.get(g.group_key);
+          const returned = retByKey.get(g.group_key) || false;
+          if (!aid) return true;
+          const c = countByAlbum.get(aid) || 0;
+          return c === 0 || returned;
+        })
+        .map((g) => ({ ...g, returned_for_fix: retByKey.get(g.group_key) || false }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
       setGroups(pending);
@@ -183,49 +256,118 @@ export default function AHCatchTeamLite() {
     loadPending();
   }, [loadPending]);
 
-  /* เมื่อเลือก group → เคลียร์แบบฟอร์ม */
+  /* เมื่อเลือก group → หา/สร้างอัลบั้ม */
   useEffect(() => {
-    setTeamCount("");
-    setMemberCount("");
-    setNote("");
-  }, [sel?.group_key]);
+    const go = async () => {
+      setAlbumId(null);
+      setFiles([]);
+      setNote("");
+      if (!sel) return;
 
-  /* บันทึกยืนยัน */
-  const onSave = async () => {
+      const { data: existed } = await supabase
+        .from("plan_doc_albums")
+        .select("id, returned_for_fix")
+        .eq("group_key", sel.group_key)
+        .maybeSingle();
+      let aid = existed?.id;
+      if (!aid) {
+        const { data: ins, error: eIns } = await supabase
+          .from("plan_doc_albums")
+          .insert({
+            group_key: sel.group_key,
+            delivery_date: sel.date,
+            farm_id: sel.farm.id,
+            ah_id: me?.id || null,
+            returned_for_fix: false,
+          })
+          .select("id")
+          .single();
+        if (eIns) {
+          setErr(eIns.message);
+          return;
+        }
+        aid = ins.id;
+      }
+      setAlbumId(aid);
+    };
+    go();
+  }, [sel, me?.id]);
+
+  /* เลือกไฟล์ (PDF/รูป) + ย่อรูป ≤ 1MB */
+  const onPick = async (e) => {
+    const chosen = Array.from(e.target.files || []);
+    e.target.value = "";
+    const remain = maxFiles - files.length;
+    if (remain <= 0) {
+      setErr(`อัลบั้มนี้เก็บได้สูงสุด ${maxFiles} ไฟล์`);
+      return;
+    }
+
+    try {
+      const out = [];
+      for (const f of chosen.slice(0, remain)) {
+        const mt = f.type || "";
+        if (!(isImage(mt) || isPdf(mt))) continue; // รับเฉพาะ PDF/รูป
+        let ff = f;
+        if (isImage(mt)) {
+          ff = await compressImage(f); // ย่อรูปให้ไม่เกิน 1MB
+        }
+        out.push({ file: ff, previewUrl: isImage(ff.type) ? URL.createObjectURL(ff) : null, mime: ff.type });
+      }
+      setFiles((old) => [...old, ...out]);
+      setErr("");
+    } catch (ex) {
+      setErr(ex.message || "เตรียมไฟล์ไม่สำเร็จ");
+    }
+  };
+
+  /* อัปโหลดทั้งหมด */
+  const uploadAll = async () => {
     setErr("");
     setMsg("");
-
-    if (!sel) return setErr("ยังไม่ได้เลือกรายการ");
-    const t = Number(teamCount);
-    if (!t || t < 1 || t > 50) return setErr("จำนวนทีมต้องเป็นเลข 1–50");
-    const m = memberCount ? Number(memberCount) : null;
-    if (m !== null && (Number.isNaN(m) || m < 1))
-      return setErr("จำนวนคนต่อทีมต้องเป็นเลข ≥ 1");
+    if (!albumId) return setErr("ยังไม่ได้เลือกแผน");
+    if (!files.length) return setErr("ยังไม่ได้เลือกไฟล์");
 
     setBusy(true);
     try {
-      const { error: ei } = await supabase.from("plan_catcher_confirms").insert({
-        group_key: sel.group_key,
-        delivery_date: sel.date,
-        farm_id: sel.farm.id,
-        ah_id: me?.id || null,
-        team_count: t,
-        member_count: m,
-        note: note || null,
-      });
-      if (ei) throw ei;
+      for (const it of files) {
+        const f = it.file;
+        const ext = isPdf(f.type) ? "pdf" : "jpg";
+        const fileName = `${crypto.randomUUID()}.${ext}`;
+        const path = `${albumId}/${fileName}`;
 
-      setMsg("บันทึกยืนยันสำเร็จ");
-      setTimeout(() => setMsg(""), 3000); // success 3 วินาที
+        const { error: eu } = await supabase.storage
+          .from("plan-docs")
+          .upload(path, f, { contentType: f.type, upsert: false, cacheControl: "3600" });
+        if (eu) throw eu;
 
-      // เอารายการนี้ออกจากคิว
+        const { data: pub } = await supabase.storage.from("plan-docs").getPublicUrl(path);
+
+        const { error: ei } = await supabase.from("plan_doc_files").insert({
+          album_id: albumId,
+          note,
+          file_url: pub.publicUrl,
+          file_name: path,
+          file_bytes: f.size,
+          mime_type: f.type,
+        });
+        if (ei) throw ei;
+      }
+
+      // เคลียร์สถานะตีกลับ (ถ้ามี)
+      await supabase.from("plan_doc_albums").update({ returned_for_fix: false, ah_id: me?.id || null }).eq("id", albumId);
+
+      setMsg("อัปโหลดเอกสารสำเร็จ");
+      setTimeout(() => setMsg(""), 3000);
+
+      setFiles([]);
+      // ทำเสร็จ → เอาออกจากคิว
       setGroups((old) => old.filter((g) => g.group_key !== sel.group_key));
       setSel(null);
-      setTeamCount("");
-      setMemberCount("");
+      setAlbumId(null);
       setNote("");
     } catch (e) {
-      setErr(e.message || "บันทึกไม่สำเร็จ"); // ค้างไว้จนกดปุ่มใดๆ
+      setErr(e.message || "อัปโหลดไม่สำเร็จ");
     } finally {
       setBusy(false);
     }
@@ -235,9 +377,9 @@ export default function AHCatchTeamLite() {
     <div className="min-h-screen bg-emerald-50">
       <header className="bg-emerald-600 text-white">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">ยืนยันจำนวนทีมจับสุกร (คิววันนี้ → +7 วัน)</h1>
+          <h1 className="text-2xl font-semibold">อัปโหลดเอกสาร PDF/รูป (คิววันนี้ → +7 วัน)</h1>
           <Link to="/ah" className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20">
-            กลับหน้า Animal husbandry
+            กลับหน้า Animal husbrandry
           </Link>
         </div>
       </header>
@@ -247,74 +389,77 @@ export default function AHCatchTeamLite() {
         {msg && <Banner type="success">{msg}</Banner>}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* คิวที่ยังไม่ได้ยืนยัน */}
+          {/* คิวที่ยังไม่ได้ทำ / ถูกตีกลับ */}
           <div className="md:col-span-2">
-            <div className="font-semibold mb-2">คิวที่ยังไม่ได้ทำ (วันนี้ → ล่วงหน้า 7 วัน)</div>
+            <div className="font-semibold mb-2">คิวที่ยังไม่ได้ทำ (วันนี้ → ล่วงหน้า 7 วัน) + ที่ถูกตีกลับ</div>
             <SearchBox list={groups} value={sel} onChange={setSel} />
             {busy && <div className="text-gray-500 mt-3">กำลังโหลด…</div>}
             {!busy && !groups.length && <div className="text-gray-500 mt-3">ไม่มีคิวค้าง</div>}
           </div>
 
-          {/* ฟอร์มยืนยัน */}
+          {/* แผงอัปโหลด */}
           <div className="space-y-3">
             <div className="rounded-xl border bg-white/90 p-3">
-              <div className="font-semibold mb-2">ยืนยันจำนวนทีม</div>
+              <div className="font-semibold mb-2">อัลบั้มเอกสาร</div>
               <div className="text-sm text-gray-700">
                 วันที่: <b>{sel?.date || "-"}</b>
                 <br />
                 ฟาร์ม: <b>{sel ? farmLabel(sel.farm) : "-"}</b>
+                {sel?.returned_for_fix ? (
+                  <div className="text-xs text-red-600 mt-1">รายการนี้ถูกตีกลับ ให้แนบเอกสารแก้ไขใหม่</div>
+                ) : null}
               </div>
 
-              <label className="block text-sm text-gray-600 mt-3">จำนวนทีม (ทีม)</label>
-              <input
-                value={teamCount}
-                onChange={(e) => setTeamCount(e.target.value.replace(/[^\d]/g, ""))}
-                inputMode="numeric"
-                placeholder="เช่น 2"
-                className="mb-3 w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-
-              <label className="block text-sm text-gray-600">จำนวนคนต่อทีม (คน) — ไม่บังคับ</label>
-              <input
-                value={memberCount}
-                onChange={(e) => setMemberCount(e.target.value.replace(/[^\d]/g, ""))}
-                inputMode="numeric"
-                placeholder="เช่น 6"
-                className="mb-3 w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-
-              <label className="block text-sm text-gray-600">หมายเหตุ</label>
+              <label className="block text-sm text-gray-600 mt-3">หมายเหตุ</label>
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="เช่น ขอเพิ่มทีมเพราะจำนวนสุกรมาก"
-                className="mb-3 w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
+                placeholder="เช่น ใบรับรอง, ใบอนุญาต, เอกสารเพิ่มเติม"
+                className="mb-2 w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
               />
+
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                multiple
+                onChange={onAnyAction(onPick)}
+                className="mb-2 block w-full text-sm"
+                disabled={!sel}
+              />
+              <div className="text-xs text-gray-600 mb-2">
+                รองรับ PDF/รูป สูงสุด {maxFiles} ไฟล์ (ไฟล์รูปจะถูกย่อ ≤ 1MB อัตโนมัติ)
+              </div>
+
+              {files.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {files.map((it, i) => (
+                    <div key={i} className="w-24 h-24 rounded-md border overflow-hidden flex items-center justify-center">
+                      {isImage(it.mime) ? (
+                        <img src={it.previewUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-xs text-gray-600">PDF</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={onAnyAction(onSave)}
+                  onClick={onAnyAction(uploadAll)}
                   className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
-                  disabled={busy || !sel || !teamCount}
+                  disabled={busy || !sel || !files.length}
                 >
-                  บันทึกยืนยัน
+                  อัปโหลดเอกสาร & ทำรายการนี้ให้เสร็จ
                 </button>
                 <button
                   type="button"
-                  onClick={onAnyAction(() => {
-                    setTeamCount("");
-                    setMemberCount("");
-                    setNote("");
-                  })}
+                  onClick={onAnyAction(() => setFiles([]))}
                   className="rounded-md bg-gray-200 px-4 py-2 hover:bg-gray-300"
                 >
-                  ล้างฟอร์ม
+                  ล้างไฟล์ที่เลือก
                 </button>
-              </div>
-
-              <div className="text-xs text-gray-500 mt-2">
-                * แสดงเฉพาะรายการที่ยังไม่ได้ยืนยันในช่วงวันนี้ถึงอีก 7 วัน
               </div>
             </div>
           </div>
@@ -322,4 +467,4 @@ export default function AHCatchTeamLite() {
       </main>
     </div>
   );
-}
+} 
