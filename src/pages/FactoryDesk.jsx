@@ -80,6 +80,9 @@ export default function FactoryDesk() {
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
 
+  // 🔒 สิทธิ์ SITE ของ user
+  const [allowedSites, setAllowedSites] = useState([]);
+
   const [factories, setFactories] = useState([]);
   const [factoryId, setFactoryId] = useState(""); // ให้ user เลือกโรงงาน
   const [factoryCoord, setFactoryCoord] = useState(null);
@@ -101,21 +104,58 @@ export default function FactoryDesk() {
   const toastOk = (m) => { setOk(m); setTimeout(()=>setOk(""), 3000); };
   const toastErr = (m) => setErr(m);
 
-  /* โหลดรายการโรงงานให้เลือก */
+  /* โหลดสิทธิ์ SITE ของ user */
+  const loadUserSites = useCallback(async () => {
+    if (!me?.id) return setAllowedSites([]);
+    try {
+      const { data, error } = await supabase
+        .from("user_site_relations")
+        .select("site")
+        .eq("user_id", me.id)
+        .eq("status", "active");
+      if (error) throw error;
+      setAllowedSites(Array.from(new Set((data || []).map(r => r.site).filter(Boolean))));
+    } catch (e) {
+      setAllowedSites([]);
+      toastErr(e.message || "โหลดสิทธิ์ SITE ไม่สำเร็จ");
+    }
+  }, [me?.id]);
+
+  useEffect(() => { loadUserSites(); }, [loadUserSites]);
+
+  /* โหลดรายการโรงงาน (จำกัดเฉพาะ SITE ที่ user มีสิทธิ์) */
   const loadFactories = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from("factories").select("id, site, name, lat, lng").order("name");
+      // ถ้าไม่มีสิทธิ์ site เลย -> ว่าง
+      if (!allowedSites.length) {
+        setFactories([]);
+        setFactoryId("");
+        setFactoryCoord(null);
+        return;
+      }
+      const { data, error } = await supabase
+        .from("factories")
+        .select("id, site, name, lat, lng")
+        .in("site", allowedSites)
+        .order("name");
       if (error) throw error;
+
       setFactories(data || []);
-      // auto-select อันแรกถ้าไม่มีค่า
-      if (!factoryId && data && data.length) {
-        setFactoryId(data[0].id);
-        if (data[0].lat && data[0].lng) setFactoryCoord({ lat: data[0].lat, lng: data[0].lng });
+
+      // เลือกอันแรกถ้า factoryId ไม่อยู่ในสิทธิ์
+      const exists = (data || []).some(f => f.id === factoryId);
+      const first = data && data.length ? data[0] : null;
+      if (!exists) {
+        setFactoryId(first ? first.id : "");
+        setFactoryCoord(first?.lat && first?.lng ? { lat: first.lat, lng: first.lng } : null);
+      } else {
+        const f = (data || []).find(x => x.id === factoryId);
+        setFactoryCoord(f?.lat && f?.lng ? { lat: f.lat, lng: f.lng } : null);
       }
     } catch (e) {
       toastErr(e.message || "โหลดรายชื่อโรงงานไม่สำเร็จ");
     }
-  }, [factoryId]);
+  }, [allowedSites, factoryId]);
 
   useEffect(() => { loadFactories(); }, [loadFactories]);
 
@@ -139,7 +179,7 @@ export default function FactoryDesk() {
 
       const planIds = (plans || []).map(p => p.id);
 
-      // session ล่าสุดของแต่ละแผน (โรงงานเห็นทั้งหมด)
+      // session ล่าสุดของแต่ละแผน
       let sessMap = {};
       if (planIds.length) {
         const { data: sess, error: e2 } = await supabase
@@ -182,7 +222,7 @@ export default function FactoryDesk() {
           (files || []).forEach(f => { byAlbum[f.album_id] = (byAlbum[f.album_id] || 0) + 1; });
           (albums || []).forEach(a => { docCount[a.plan_id] = (docCount[a.plan_id] || 0) + (byAlbum[a.id] || 0); });
         }
-      } catch { /* optional */ }
+      } catch {}
 
       // รายงาน AH (ถ้ามี)
       const ahMap = {};
@@ -197,7 +237,7 @@ export default function FactoryDesk() {
             ahMap[r.plan_id] = { condition: r.farm_condition || null, weather: r.weather || null, at: r.created_at };
           }
         });
-      } catch { /* optional */ }
+      } catch {}
 
       setRows(plans || []);
       setSessions(sessMap);
@@ -280,7 +320,7 @@ export default function FactoryDesk() {
   }, [overviewMarkers, factoryCoord]);
 
   /* logout */
-  const doLogout = () => { try { localStorage.removeItem("user"); } catch {/* ignore intentionally */} navigate("/login", { replace: true }); };
+  const doLogout = () => { try { localStorage.removeItem("user"); } catch {} navigate("/login", { replace: true }); };
 
   return (
     <div className="min-h-screen bg-amber-50">
@@ -410,7 +450,7 @@ export default function FactoryDesk() {
           </div>
         </div>
 
-        {/* ตารางคิว (ไม่มีแผนที่ย่อยแล้ว) */}
+        {/* ตารางคิว */}
         <div className="space-y-3">
           {busy && <div className="text-gray-500">กำลังโหลด…</div>}
           {!busy && filtered.length === 0 && (
@@ -474,7 +514,7 @@ export default function FactoryDesk() {
                       onClick={() => confirmReceipt(r)}
                       className="rounded-md px-4 py-2 text-white disabled:opacity-60"
                       disabled={busy || !isArrived}
-                      style={{ backgroundColor: isArrived ? "#059669" : "#9CA3AF" }} // emerald-600 เมื่อพร้อม
+                      style={{ backgroundColor: isArrived ? "#059669" : "#9CA3AF" }}
                     >
                       ยืนยันรับ (โรงงาน)
                     </button>

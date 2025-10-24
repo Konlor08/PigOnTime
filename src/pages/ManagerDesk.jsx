@@ -8,7 +8,7 @@ import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from "react-l
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-/* Fix Leaflet marker assets (Vite) + icon  — ประกาศครั้งเดียวเท่านั้น */
+/* Fix Leaflet marker assets (Vite) + icon — ประกาศครั้งเดียวเท่านั้น */
 const ICON_RETINA = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png";
 const ICON_STD = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png";
 const ICON_SHADOW = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png";
@@ -24,7 +24,7 @@ const iconSmall = new L.Icon({
   shadowSize: [41, 41],
 });
 
-/* ---------- helpers (อย่าซ้ำด้านล่างอีก) ---------- */
+/* ---------- helpers ---------- */
 const fmtDate = (d) =>
   new Date(d).toLocaleDateString("th-TH", { year: "numeric", month: "2-digit", day: "2-digit" });
 const fmtTime = (d) => (d ? new Date(d).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-");
@@ -78,14 +78,21 @@ export default function ManagerDesk() {
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
 
-  const [rows, setRows] = useState([]);             // แผนในช่วงที่รับผิดชอบ
+  // ✅ เลือก Site ได้ (ว่าง = ดูทั้งหมด)
+  const [selectedSite, setSelectedSite] = useState("");
+
+  const [rows, setRows] = useState([]);             // แผนในช่วงที่เลือก (หรือทั้งหมด)
   const [sessions, setSessions] = useState({});     // plan_id -> session ล่าสุด
   const [latestPos, setLatestPos] = useState({});   // plan_id -> {lat,lng,at,speed_kmh}
 
   const [query, setQuery] = useState("");
 
-  const [, setFactories] = useState([]);            // list โรงงาน (เก็บไว้เฉยๆ)
-  const [factoryBySite, setFactoryBySite] = useState({}); // site -> {name, lat, lng}
+  const [factories, setFactories] = useState([]);            // list โรงงาน
+  const [factoryBySite, setFactoryBySite] = useState({});    // site -> {name, lat, lng}
+  const sites = useMemo(
+    () => Array.from(new Set((factories || []).map(f => f.site).filter(Boolean))),
+    [factories]
+  );
 
   // เอกสาร/รายงานจาก AH
   const [docCountByPlan, setDocCountByPlan] = useState({}); // plan_id -> count files
@@ -97,7 +104,7 @@ export default function ManagerDesk() {
   const toastOk = (m) => { setOk(m); setTimeout(()=>setOk(""), 3000); };
   const toastErr = (m) => setErr(m);
 
-  /* โหลดโรงงานไว้ map ชื่อ/พิกัด */
+  /* โหลดโรงงานไว้ map ชื่อ/พิกัด + รายการ site */
   const loadFactories = useCallback(async () => {
     try {
       const { data, error } = await supabase.from("factories").select("id, site, name, lat, lng");
@@ -116,35 +123,23 @@ export default function ManagerDesk() {
   const loadQueues = useCallback(async () => {
     setErr(""); setBusy(true);
     try {
-      if (!me?.id) throw new Error("ไม่พบผู้ใช้ปัจจุบัน");
-
-      // 1) ฟาร์มที่ผู้จัดการรับผิดชอบ
-      let farmIds = [];
-      try {
-        const { data: rels, error: eRel } = await supabase
-          .from("manager_farm_relations")
-          .select("farm_id")
-          .eq("manager_id", me.id)
-          .eq("status", "active");
-        if (eRel) throw eRel;
-        farmIds = (rels || []).map(r => r.farm_id);
-      } catch  {
-        farmIds = []; // ถ้าไม่มีตาราง/สิทธิ์ ให้เห็นทั้งหมด (กันจอล่ม)
-      }
-
-      // 2) แผนช่วงเวลา
+      // ✅ ผู้จัดการเห็น “ทั้งหมด” เป็นค่าเริ่มต้น
+      // ถ้ามี selectedSite ให้กรอง .eq("factory", selectedSite)
       let q = supabase
         .from("planning_plan_full")
         .select("id, delivery_date, delivery_time, plant, branch, house, farm_id, farm_name, plate, factory, quantity, timetrucktofarm")
         .gte("delivery_date", start)
         .lte("delivery_date", end)
         .order("delivery_date", { ascending: true });
-      if (farmIds.length) q = q.in("farm_id", farmIds);
+
+      if (selectedSite) q = q.eq("factory", selectedSite);
+
       const { data: plans, error: ePlans } = await q;
       if (ePlans) throw ePlans;
+
       const planIds = (plans || []).map(p => p.id);
 
-      // 3) session ล่าสุดของแต่ละแผน
+      // session ล่าสุดของแต่ละแผน
       let sessMap = {};
       if (planIds.length) {
         const { data: sess, error: e2 } = await supabase
@@ -156,7 +151,7 @@ export default function ManagerDesk() {
         (sess || []).forEach(s => { if (!sessMap[s.plan_id]) sessMap[s.plan_id] = s; });
       }
 
-      // 4) พิกัดล่าสุดต่อ session
+      // พิกัดล่าสุดต่อ session
       let latestMap = {};
       const sessList = Object.values(sessMap);
       for (const s of sessList) {
@@ -170,7 +165,7 @@ export default function ManagerDesk() {
         if (pos) latestMap[s.plan_id] = { lat: pos.lat, lng: pos.lng, at: pos.recorded_at, speed_kmh: pos.speed_kmh ?? null };
       }
 
-      // 5) เอกสารของแต่ละแผน
+      // เอกสารของแต่ละแผน
       const docCount = {};
       try {
         const { data: albums } = await supabase
@@ -191,7 +186,7 @@ export default function ManagerDesk() {
         }
       } catch { /* optional */ }
 
-      // 6) รายงาน AH (ถ้ามี)
+      // รายงาน AH (ถ้ามี)
       const ahMap = {};
       try {
         const { data: ah } = await supabase
@@ -216,7 +211,7 @@ export default function ManagerDesk() {
     } finally {
       setBusy(false);
     }
-  }, [me?.id, start, end]);
+  }, [selectedSite, start, end]);
 
   useEffect(() => { loadQueues(); }, [loadQueues]);
 
@@ -231,7 +226,7 @@ export default function ManagerDesk() {
     return Math.max(1, min);
   }
 
-  /* ฟิลเตอร์ค้นหา */
+  /* ฟิลเตอร์ค้นหา (เพิ่มเติมจากการกรอง Site) */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -294,9 +289,27 @@ export default function ManagerDesk() {
         {/* Controls */}
         <div className="rounded-xl border border-emerald-200 bg-white p-3 space-y-3">
           <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-            <div className="space-x-2">
-              <Pill color="green">ช่วง: {fmtDate(start)} → {fmtDate(end)}</Pill>
+            <div className="flex items-end gap-3">
+              <div className="space-x-2">
+                <Pill color="green">ช่วง: {fmtDate(start)} → {fmtDate(end)}</Pill>
+              </div>
+
+              {/* ✅ ตัวกรอง Site (ว่าง = ทั้งหมด) */}
+              <div className="w-64">
+                <div className="text-sm text-gray-600 mb-1">กรองตาม Site (โรงงาน)</div>
+                <select
+                  value={selectedSite}
+                  onChange={(e) => setSelectedSite(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">— ทั้งหมด —</option>
+                  {sites.map((s) => (
+                    <option key={s} value={s}>{factoryBySite[s]?.name || s}</option>
+                  ))}
+                </select>
+              </div>
             </div>
+
             <div className="flex gap-2 items-center">
               <input
                 value={query}
@@ -318,7 +331,7 @@ export default function ManagerDesk() {
 
         {/* ✅ แผนที่เดียว แสดงทุกคัน + จุดโรงงาน */}
         <div className="rounded-xl border border-emerald-200 bg-white p-2">
-          <div className="px-2 py-1 text-sm text-gray-600">แผนที่รวมรถขนส่งจากฟาร์มที่รับผิดชอบ (แผนที่เดียว)</div>
+          <div className="px-2 py-1 text-sm text-gray-600">แผนที่รวมรถขนส่ง (ทั้งหมด หรือเฉพาะ Site ที่เลือก)</div>
           <div className="h-[520px] rounded-lg overflow-hidden border border-emerald-200">
             <MapContainer className="h-full w-full" center={[13.736717, 100.523186]} zoom={12} scrollWheelZoom>
               <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -373,7 +386,7 @@ export default function ManagerDesk() {
           </div>
         </div>
 
-        {/* ตารางคิว (ไม่มีแผนที่ย่อยแล้ว) */}
+        {/* ตารางคิว */}
         <div className="space-y-3">
           {busy && <div className="text-gray-500">กำลังโหลด…</div>}
           {!busy && filtered.length === 0 && (

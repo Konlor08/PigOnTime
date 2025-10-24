@@ -16,6 +16,7 @@ import AdminFactories from "./pages/admin/AdminFactories.jsx";
 import AdminTrucks from "./pages/admin/AdminTrucks.jsx";
 import AdminRelations from "./pages/admin/AdminRelations.jsx";
 import LinkPlanningSites from "./pages/admin/LinkPlanningSites.jsx";
+import AdminAllTrucks from "./pages/admin/AdminAllTrucks.jsx";
 
 /* ---------- planning ---------- */
 import PlanningHome from "./pages/PlanningHome.jsx";
@@ -94,6 +95,7 @@ export default function AppRouter() {
         <Route path="/admin/trucks" element={<AdminTrucks />} />
         <Route path="/admin/relations" element={<AdminRelations />} />
         <Route path="/admin/planning-sites" element={<LinkPlanningSites />} />
+        <Route path="/admin/all-trucks" element={<AdminAllTrucks />} />
       </Route>
 
       {/* planning */}

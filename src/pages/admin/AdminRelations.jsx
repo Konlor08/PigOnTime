@@ -10,9 +10,7 @@ function Tab({ active, onClick, children }) {
       onClick={onClick}
       className={
         "rounded-md px-3 py-2 text-sm border " +
-        (active
-          ? "bg-blue-600 border-blue-600 text-white"
-          : "bg-white hover:bg-gray-50")
+        (active ? "bg-blue-600 border-blue-600 text-white" : "bg-white hover:bg-gray-50")
       }
     >
       {children}
@@ -38,14 +36,9 @@ function SearchList({ title, list, labelKey, selectedId, onSelect, hideSelected 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return list;
-    return list.filter((x) =>
-      String(x[labelKey] || "")
-        .toLowerCase()
-        .includes(s)
-    );
+    return list.filter((x) => String(x[labelKey] || "").toLowerCase().includes(s));
   }, [list, q, labelKey]);
 
-  // ซ่อนรายการที่เลือกอยู่ตามพร็อพ (ถ้าต้องการ)
   const visible = hideSelected ? filtered.filter((x) => x.id !== selectedId) : filtered;
 
   return (
@@ -72,16 +65,11 @@ function SearchList({ title, list, labelKey, selectedId, onSelect, hideSelected 
                 aria-selected={active}
                 className={
                   "relative block w-full text-left px-3 py-2 text-sm border-b last:border-b-0 " +
-                  (active
-                    ? "bg-blue-50 border-l-4 border-l-blue-600"
-                    : "bg-white hover:bg-gray-50 border-l-4 border-l-transparent")
+                  (active ? "bg-blue-50 border-l-4 border-l-blue-600" : "bg-white hover:bg-gray-50 border-l-4 border-l-transparent")
                 }
               >
                 <span
-                  className={
-                    "pointer-events-none absolute left-0 top-0 h-full w-1 " +
-                    (active ? "bg-blue-600" : "bg-transparent")
-                  }
+                  className={"pointer-events-none absolute left-0 top-0 h-full w-1 " + (active ? "bg-blue-600" : "bg-transparent")}
                 />
                 {x[labelKey]}
               </button>
@@ -111,13 +99,17 @@ export default function AdminRelations() {
   }, [msg, err]);
 
   // ---------- master lists ----------
-  const [farms, setFarms] = useState([]); // {id,label}
-  const [factories, setFactories] = useState([]); // {id,label}
-  const [usersAH, setUsersAH] = useState([]); // {id,label}
-  const [usersMgr, setUsersMgr] = useState([]);
-  const [usersCatch, setUsersCatch] = useState([]);
-  const [usersDriver, setUsersDriver] = useState([]);
-  const [trucks, setTrucks] = useState([]);
+  const [farms, setFarms] = useState([]);          // {id,label}
+  const [factories, setFactories] = useState([]);  // {id,label, site}
+  const [usersAH, setUsersAH] = useState([]);      // {id,label}
+  const [usersMgr, setUsersMgr] = useState([]);    // {id,label}
+  const [usersCatch, setUsersCatch] = useState([]);// {id,label}
+  const [usersDriver, setUsersDriver] = useState([]);// {id,label}
+  const [trucks, setTrucks] = useState([]);        // {id,label}
+
+  // ✅ สำหรับ Tab ใหม่: user ↔ site
+  const [usersFactory, setUsersFactory] = useState([]); // ผู้ใช้ role 'Factory'
+  const [siteOptions, setSiteOptions] = useState([]);   // [{id:site,label:site}]
 
   const loadFarms = useCallback(async () => {
     const { data, error } = await supabase
@@ -125,12 +117,10 @@ export default function AdminRelations() {
       .select("id, plant, branch, house, farm_name")
       .order("plant");
     if (error) return setErr(error.message);
-    setFarms(
-      (data || []).map((f) => ({
-        id: f.id,
-        label: `${f.plant ?? ""} / ${f.branch ?? ""} / ${f.house ?? ""} / ${f.farm_name ?? ""}`,
-      }))
-    );
+    setFarms((data || []).map((f) => ({
+      id: f.id,
+      label: `${f.plant ?? ""} / ${f.branch ?? ""} / ${f.house ?? ""} / ${f.farm_name ?? ""}`,
+    })));
   }, []);
 
   const loadFactories = useCallback(async () => {
@@ -139,12 +129,16 @@ export default function AdminRelations() {
       .select("id, name, branch, site")
       .order("name");
     if (error) return setErr(error.message);
-    setFactories(
-      (data || []).map((fc) => ({
-        id: fc.id,
-        label: `${fc.site ?? ""} ${fc.branch ?? ""} ${fc.name ?? ""}`.trim(),
-      }))
-    );
+    const rows = (data || []).map((fc) => ({
+      id: fc.id,
+      site: fc.site,
+      label: `${fc.site ?? ""} ${fc.branch ?? ""} ${fc.name ?? ""}`.trim(),
+    }));
+    setFactories(rows);
+
+    // สร้าง siteOptions (unique site)
+    const uniq = Array.from(new Set(rows.map((r) => r.site).filter(Boolean)));
+    setSiteOptions(uniq.map((s) => ({ id: s, label: s })));
   }, []);
 
   const loadUsersByRole = useCallback(async (role, setter) => {
@@ -163,10 +157,7 @@ export default function AdminRelations() {
   }, []);
 
   const loadTrucks = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("trucks")
-      .select("id, plate")
-      .order("plate");
+    const { data, error } = await supabase.from("trucks").select("id, plate").order("plate");
     if (error) return setErr(error.message);
     setTrucks((data || []).map((t) => ({ id: t.id, label: t.plate || t.id })));
   }, []);
@@ -177,6 +168,9 @@ export default function AdminRelations() {
   const [rowsMgrF, setRowsMgrF] = useState([]);
   const [rowsCatchF, setRowsCatchF] = useState([]);
   const [rowsDT, setRowsDT] = useState([]);
+
+  // ✅ rowsUS: user ↔ site
+  const [rowsUS, setRowsUS] = useState([]);
 
   const loadFF = useCallback(async () => {
     const { data, error } = await supabase
@@ -219,6 +213,16 @@ export default function AdminRelations() {
     setRowsDT(data || []);
   }, []);
 
+  // ✅ โหลด user ↔ site
+  const loadUS = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("user_site_relations") // <- ตารางความสัมพันธ์ผู้ใช้กับ site (id, user_id, site, status, created_at)
+      .select("id, user_id, site, status")
+      .order("created_at", { ascending: false });
+    if (error) return setErr(error.message);
+    setRowsUS(data || []);
+  }, []);
+
   // initial
   useEffect(() => {
     (async () => {
@@ -229,12 +233,14 @@ export default function AdminRelations() {
         loadUsersByRole("Manager", setUsersMgr),
         loadUsersByRole("Catching", setUsersCatch),
         loadUsersByRole("Driver", setUsersDriver),
+        loadUsersByRole("Factory", setUsersFactory), // ✅ ผู้ใช้โรงงาน
         loadTrucks(),
         loadFF(),
         loadAHF(),
         loadMgrF(),
         loadCatchF(),
         loadDT(),
+        loadUS(), // ✅
       ]);
     })();
   }, [
@@ -247,6 +253,7 @@ export default function AdminRelations() {
     loadMgrF,
     loadCatchF,
     loadDT,
+    loadUS,
   ]);
 
   // ---------- selections ----------
@@ -257,6 +264,10 @@ export default function AdminRelations() {
   const [selCatch, setSelCatch] = useState("");
   const [selDriver, setSelDriver] = useState("");
   const [selTruck, setSelTruck] = useState("");
+
+  // ✅ selections สำหรับ user ↔ Factory
+  const [selUserSite, setSelUserSite] = useState("");
+  const [selSite, setSelSite] = useState("");
 
   // helper: หา label จาก list
   const labelOf = (arr, id) => arr.find((x) => x.id === id)?.label || id;
@@ -271,7 +282,6 @@ export default function AdminRelations() {
     );
   }, [rowsDT, selDriver]);
 
-  // 1 รถยังจับคู่ได้หลาย driver -> ไม่กรองตามคนอื่น กรองเฉพาะที่ driver นี้เคยเลือกแล้ว
   const availableTrucks = useMemo(() => {
     return (trucks || []).filter((t) => !driverUsedTruckIds.has(t.id));
   }, [trucks, driverUsedTruckIds]);
@@ -352,29 +362,47 @@ export default function AdminRelations() {
   async function addDT() {
     if (!selDriver || !selTruck) return setErr("กรุณาเลือก Driver และ Truck");
 
-    // กันการสร้างซ้ำสำหรับ driver เดียวกัน
     const dup = rowsDT.some(
-      (r) =>
-        r.idcode === selDriver &&
-        r.truck_id === selTruck &&
-        String(r.status).toLowerCase() === "active"
+      (r) => r.idcode === selDriver && r.truck_id === selTruck && String(r.status).toLowerCase() === "active"
     );
     if (dup) {
       setErr("คู่นี้ถูกสร้างไว้แล้ว");
       return;
     }
-
     setLoading(true);
     try {
       const { error } = await supabase
         .from("driver_truck_relations")
         .insert([{ idcode: selDriver, truck_id: selTruck, status: "active" }]);
       if (error) throw error;
-
-      // ไม่เคลียร์ driver เพื่อเพิ่มทะเบียนต่อเนื่องได้
       setSelTruck("");
       setMsg("Added successfully.");
       await loadDT();
+    } catch (e) {
+      setErr(e.message || "Add failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ✅ actions: user ↔ site
+  async function addUS() {
+    if (!selUserSite || !selSite) return setErr("กรุณาเลือก User และ SITE");
+    // กันซ้ำ
+    const dup = (rowsUS || []).some(
+      (r) => r.user_id === selUserSite && r.site === selSite && String(r.status).toLowerCase() === "active"
+    );
+    if (dup) return setErr("ความสัมพันธ์นี้ถูกสร้างไว้แล้ว");
+
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from("user_site_relations")
+        .insert([{ user_id: selUserSite, site: selSite, status: "active" }]);
+      if (error) throw error;
+      setSelSite("");
+      setMsg("Added successfully.");
+      await loadUS();
     } catch (e) {
       setErr(e.message || "Add failed");
     } finally {
@@ -399,12 +427,14 @@ export default function AdminRelations() {
   const toggleMgrF = toggler("manager_farm_relations", loadMgrF);
   const toggleCatchF = toggler("catching_farm_relations", loadCatchF);
   const toggleDT = toggler("driver_truck_relations", loadDT);
+  const toggleUS = toggler("user_site_relations", loadUS); // ✅
 
   const delFF = remover("farm_factory_relations", loadFF);
   const delAHF = remover("ah_farm_relations", loadAHF);
   const delMgrF = remover("manager_farm_relations", loadMgrF);
   const delCatchF = remover("catching_farm_relations", loadCatchF);
   const delDT = remover("driver_truck_relations", loadDT);
+  const delUS = remover("user_site_relations", loadUS); // ✅
 
   /* ---------- renderer ของตารางผลลัพธ์ ---------- */
   function RelationTable({ headers, rows, renderLeft, renderRight, onToggle, onDelete }) {
@@ -468,10 +498,7 @@ export default function AdminRelations() {
       <header className="bg-blue-600 text-white">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Relations</h1>
-          <a
-            href="/admin"
-            className="rounded-md bg-white/10 px-3 py-2 text-sm hover:bg-white/20"
-          >
+          <a href="/admin" className="rounded-md bg-white/10 px-3 py-2 text-sm hover:bg-white/20">
             Back to Admin
           </a>
         </div>
@@ -496,49 +523,28 @@ export default function AdminRelations() {
           <Tab active={activeTab === "driver_truck"} onClick={() => setActiveTab("driver_truck")}>
             Driver ↔ Truck
           </Tab>
+
+          {/* ✅ แท็บใหม่ */}
+          <Tab active={activeTab === "user_site"} onClick={() => setActiveTab("user_site")}>
+            User ↔ SITE
+          </Tab>
         </div>
 
-        {msg && (
-          <div className="mb-3 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-green-700">
-            {msg}
-          </div>
-        )}
-        {err && (
-          <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-red-700">
-            {err}
-          </div>
-        )}
+        {msg && <div className="mb-3 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-green-700">{msg}</div>}
+        {err && <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-red-700">{err}</div>}
 
         {/* ---------- Farm ↔ Factory ---------- */}
         {activeTab === "farm_factory" && (
           <div className="rounded-xl border bg-white p-4 shadow-sm">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <SearchList
-                title="Select Farm —"
-                list={farms}
-                labelKey="label"
-                selectedId={selFarm1}
-                onSelect={setSelFarm1}
-              />
-              <SearchList
-                title="Select Factory —"
-                list={factories}
-                labelKey="label"
-                selectedId={selFactory}
-                onSelect={setSelFactory}
-              />
+              <SearchList title="Select Farm —" list={farms} labelKey="label" selectedId={selFarm1} onSelect={setSelFarm1} />
+              <SearchList title="Select Factory —" list={factories} labelKey="label" selectedId={selFactory} onSelect={setSelFactory} />
             </div>
             <div className="mt-4">
-              <button
-                type="button"
-                onClick={addFF}
-                disabled={loading}
-                className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
-              >
+              <button type="button" onClick={addFF} disabled={loading} className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60">
                 {loading ? "Saving..." : "Create Relation"}
               </button>
             </div>
-
             <RelationTable
               headers={["Farm", "Factory"]}
               rows={rowsFF}
@@ -554,32 +560,14 @@ export default function AdminRelations() {
         {activeTab === "ah_farm" && (
           <div className="rounded-xl border bg-white p-4 shadow-sm">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <SearchList
-                title="Select Animalhusbandry —"
-                list={usersAH}
-                labelKey="label"
-                selectedId={selAH}
-                onSelect={setSelAH}
-              />
-              <SearchList
-                title="Select Farm —"
-                list={farms}
-                labelKey="label"
-                selectedId={selFarm1}
-                onSelect={setSelFarm1}
-              />
+              <SearchList title="Select Animalhusbandry —" list={usersAH} labelKey="label" selectedId={selAH} onSelect={setSelAH} />
+              <SearchList title="Select Farm —" list={farms} labelKey="label" selectedId={selFarm1} onSelect={setSelFarm1} />
             </div>
             <div className="mt-4">
-              <button
-                type="button"
-                onClick={addAHF}
-                disabled={loading}
-                className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
-              >
+              <button type="button" onClick={addAHF} disabled={loading} className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60">
                 {loading ? "Saving..." : "Create Relation"}
               </button>
             </div>
-
             <RelationTable
               headers={["AH", "Farm"]}
               rows={rowsAHF}
@@ -595,32 +583,14 @@ export default function AdminRelations() {
         {activeTab === "manager_farm" && (
           <div className="rounded-xl border bg-white p-4 shadow-sm">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <SearchList
-                title="Select Manager —"
-                list={usersMgr}
-                labelKey="label"
-                selectedId={selMgr}
-                onSelect={setSelMgr}
-              />
-              <SearchList
-                title="Select Farm —"
-                list={farms}
-                labelKey="label"
-                selectedId={selFarm1}
-                onSelect={setSelFarm1}
-              />
+              <SearchList title="Select Manager —" list={usersMgr} labelKey="label" selectedId={selMgr} onSelect={setSelMgr} />
+              <SearchList title="Select Farm —" list={farms} labelKey="label" selectedId={selFarm1} onSelect={setSelFarm1} />
             </div>
             <div className="mt-4">
-              <button
-                type="button"
-                onClick={addMgrF}
-                disabled={loading}
-                className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
-              >
+              <button type="button" onClick={addMgrF} disabled={loading} className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60">
                 {loading ? "Saving..." : "Create Relation"}
               </button>
             </div>
-
             <RelationTable
               headers={["Manager", "Farm"]}
               rows={rowsMgrF}
@@ -636,32 +606,14 @@ export default function AdminRelations() {
         {activeTab === "catching_farm" && (
           <div className="rounded-xl border bg-white p-4 shadow-sm">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <SearchList
-                title="Select Catching —"
-                list={usersCatch}
-                labelKey="label"
-                selectedId={selCatch}
-                onSelect={setSelCatch}
-              />
-              <SearchList
-                title="Select Farm —"
-                list={farms}
-                labelKey="label"
-                selectedId={selFarm1}
-                onSelect={setSelFarm1}
-              />
+              <SearchList title="Select Catching —" list={usersCatch} labelKey="label" selectedId={selCatch} onSelect={setSelCatch} />
+              <SearchList title="Select Farm —" list={farms} labelKey="label" selectedId={selFarm1} onSelect={setSelFarm1} />
             </div>
             <div className="mt-4">
-              <button
-                type="button"
-                onClick={addCatchF}
-                disabled={loading}
-                className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
-              >
+              <button type="button" onClick={addCatchF} disabled={loading} className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60">
                 {loading ? "Saving..." : "Create Relation"}
               </button>
             </div>
-
             <RelationTable
               headers={["Catching", "Farm"]}
               rows={rowsCatchF}
@@ -677,26 +629,48 @@ export default function AdminRelations() {
         {activeTab === "driver_truck" && (
           <div className="rounded-xl border bg-white p-4 shadow-sm">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <SearchList title="Select Driver —" list={usersDriver} labelKey="label" selectedId={selDriver} onSelect={setSelDriver} />
+              <SearchList title="Select Truck —" list={availableTrucks} labelKey="label" selectedId={selTruck} onSelect={setSelTruck} hideSelected />
+            </div>
+            <div className="mt-4">
+              <button type="button" onClick={addDT} disabled={loading} className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60">
+                {loading ? "Saving..." : "Create Relation"}
+              </button>
+            </div>
+            <RelationTable
+              headers={["Driver", "Truck"]}
+              rows={rowsDT}
+              renderLeft={(r) => labelOf(usersDriver, r.idcode)}
+              renderRight={(r) => labelOf(trucks, r.truck_id)}
+              onToggle={toggleDT}
+              onDelete={delDT}
+            />
+          </div>
+        )}
+
+        {/* ✅ ---------- User ↔ SITE ---------- */}
+        {activeTab === "user_site" && (
+          <div className="rounded-xl border bg-white p-4 shadow-sm">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <SearchList
-                title="Select Driver —"
-                list={usersDriver}
+                title="Select User (Factory role) —"
+                list={usersFactory}
                 labelKey="label"
-                selectedId={selDriver}
-                onSelect={setSelDriver}
+                selectedId={selUserSite}
+                onSelect={setSelUserSite}
               />
               <SearchList
-                title="Select Truck —"
-                list={availableTrucks}
+                title="Select SITE —"
+                list={siteOptions}
                 labelKey="label"
-                selectedId={selTruck}
-                onSelect={setSelTruck}
-                hideSelected
+                selectedId={selSite}
+                onSelect={setSelSite}
               />
             </div>
             <div className="mt-4">
               <button
                 type="button"
-                onClick={addDT}
+                onClick={addUS}
                 disabled={loading}
                 className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
               >
@@ -705,12 +679,12 @@ export default function AdminRelations() {
             </div>
 
             <RelationTable
-              headers={["Driver", "Truck"]}
-              rows={rowsDT}
-              renderLeft={(r) => labelOf(usersDriver, r.idcode)}
-              renderRight={(r) => labelOf(trucks, r.truck_id)}
-              onToggle={toggleDT}
-              onDelete={delDT}
+              headers={["User", "SITE"]}
+              rows={rowsUS}
+              renderLeft={(r) => labelOf(usersFactory, r.user_id)}
+              renderRight={(r) => r.site}
+              onToggle={toggleUS}
+              onDelete={delUS}
             />
           </div>
         )}

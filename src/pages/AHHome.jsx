@@ -118,7 +118,7 @@ export default function AHHome() {
 
           <CardLink
             to="/ah/docs/upload"
-            title="อัปโหลดเอกสาร PDF (สูงสุด 5 ไฟล์)"
+            title="อัปโหลดเอกสาร PDF "
             desc="แนบเอกสารที่เกี่ยวข้องกับแผน"
           />
 
