@@ -67,7 +67,7 @@ export default function AHHome() {
               onClick={handleLogout}
               className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
             >
-              กลับหน้า Animal husbandry
+              Logout
             </button>
           </div>
         </div>

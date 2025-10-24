@@ -77,14 +77,34 @@ export default function CatchingDesk() {
   const toastErr = (m) => setErr(m);
 
   /* โหลดคิว + รวมสถานะเอกสารจาก AH
-     !!! ปรับเท่าที่จำเป็น: ใช้ v_plan_queue_simple แทน v_catching_queue_status  */
+     !!! ปรับเท่าที่จำเป็น: ใช้ v_plan_queue_simple แทน v_catching_queue_status
+     และ "กรองเฉพาะฟาร์มที่ผู้ใช้รับผิดชอบ (status='active')" จาก catching_farm_relations */
   const loadQueues = useCallback(async () => {
     setErr("");
     setBusy(true);
     try {
       if (!me?.id) throw new Error("ไม่พบผู้ใช้ปัจจุบัน");
 
-      // 1) ดึงคิวภายในช่วงวันนี้→+7 วัน จาก view ใหม่
+      // 0) ดึงรายการฟาร์มที่ผู้ใช้รับผิดชอบ (active)
+      const { data: myFarms, error: eF } = await supabase
+        .from("catching_farm_relations")
+        .select("farm_id, status")
+        .eq("catching_id", me.id)
+        .eq("status", "active");
+
+      if (eF) throw eF;
+
+      const farmIds = Array.from(
+        new Set((myFarms || []).map((x) => x.farm_id).filter(Boolean))
+      );
+
+      if (farmIds.length === 0) {
+        // ไม่มีสิทธิ์ในฟาร์มใดเลย → เคลียร์รายการ
+        setRows([]);
+        return;
+      }
+
+      // 1) ดึงคิวภายในช่วงวันนี้→+7 วัน จาก view ใหม่ “เฉพาะฟาร์มที่รับผิดชอบ”
       const { data, error } = await supabase
         .from("v_plan_queue_simple")
         .select(
@@ -106,6 +126,7 @@ export default function CatchingDesk() {
         )
         .gte("delivery_date", start)
         .lte("delivery_date", end)
+        .in("farm_id", farmIds) // ← กรองด้วยสิทธิ์ฟาร์ม
         .order("delivery_date", { ascending: true })
         .order("plant", { ascending: true })
         .order("branch", { ascending: true })
@@ -114,23 +135,21 @@ export default function CatchingDesk() {
       if (error) throw error;
       const baseRows = data || [];
 
-      // 2) โหลดสถานะเอกสารจาก AH ตามฟาร์ม/ช่วงวันที่ที่เกี่ยวข้อง
-      const farmIds = Array.from(new Set(baseRows.map((r) => r.farm_id).filter(Boolean)));
+      // 2) โหลดสถานะเอกสารจาก AH เฉพาะ farmIds ที่ผู้ใช้ดูได้
       let docMap = new Map(); // key: `${farm_id}|${delivery_date}` -> 'need_fix'|'ok'|'none'
-      if (farmIds.length) {
-        const { data: docs, error: eDoc } = await supabase
-          .from("plan_doc_albums")
-          .select("farm_id, delivery_date, returned_for_fix")
-          .in("farm_id", farmIds)
-          .gte("delivery_date", start)
-          .lte("delivery_date", end);
-        if (eDoc) throw eDoc;
+      const { data: docs, error: eDoc } = await supabase
+        .from("plan_doc_albums")
+        .select("farm_id, delivery_date, returned_for_fix")
+        .in("farm_id", farmIds)
+        .gte("delivery_date", start)
+        .lte("delivery_date", end);
 
-        (docs || []).forEach((d) => {
-          const k = `${d.farm_id}|${d.delivery_date}`;
-          docMap.set(k, d.returned_for_fix ? "need_fix" : "ok");
-        });
-      }
+      if (eDoc) throw eDoc;
+
+      (docs || []).forEach((d) => {
+        const k = `${d.farm_id}|${d.delivery_date}`;
+        docMap.set(k, d.returned_for_fix ? "need_fix" : "ok");
+      });
 
       // 3) รวมสถานะเอกสาร
       const merged = baseRows.map((r) => {
@@ -406,7 +425,9 @@ export default function CatchingDesk() {
           {busy && <div className="text-gray-500">กำลังโหลด…</div>}
           {!busy && filtered.length === 0 && (
             <div className="rounded-lg border border-amber-200 bg-white p-4 text-gray-600">
-              ไม่พบคิวตามเงื่อนไข
+              {query?.trim()
+                ? "ไม่พบคิวตามเงื่อนไข"
+                : "คุณยังไม่มีฟาร์มที่รับผิดชอบ หรือยังไม่ได้รับสิทธิ์เข้าถึงฟาร์ม"}
             </div>
           )}
 

@@ -168,7 +168,7 @@ label: `${fc.site ?? ""} ${fc.branch ?? ""} ${fc.name ?? ""}`.trim(),
 }
 }, []);
 
-/* -------- โหลดความสัมพันธ์ farm ↔ factory เฉพาะฟาร์มของ AH -------- */
+/* -------- โหลดความสัมพันธ์ farm ↔ factory เฉพาะฟาร์ม -------- */
 const loadRows = useCallback(async () => {
 setErr("");
 if (!ahId) {

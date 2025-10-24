@@ -325,7 +325,7 @@ export default function AHDesk() {
       {/* ===== HEADER: เรียบง่าย + ปุ่ม Logout (พาไป AHHome) ===== */}
       <header className="bg-emerald-600 text-white">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">สถานะการจัดส่งตามแผน (AH)</h1>
+          <h1 className="text-2xl font-semibold">สถานะการจัดส่งตามแผน Animal husbandry</h1>
          <Link
       to="/ah"
       className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
