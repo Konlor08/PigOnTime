@@ -56,11 +56,11 @@ export default function CatchingDesk() {
   const [teamCount, setTeamCount] = useState(0);
   const [note, setNote] = useState("");
 
-  // modal เอกสาร (รายคิว)
+  // modal เอกสาร (ราย "ฟาร์ม+วัน")
   const [docOpen, setDocOpen] = useState(false);
   const [docBusy, setDocBusy] = useState(false);
   const [docErr, setDocErr] = useState("");
-  const [docAlbum, setDocAlbum] = useState(null); // {id, returned_for_fix, return_reason, plan_id, delivery_date}
+  const [docAlbum, setDocAlbum] = useState(null); // {id, returned_for_fix, return_reason, farm_id, delivery_date}
   const [docFiles, setDocFiles] = useState([]); // [{id, file_name, file_url, ...}]
   const [returnReason, setReturnReason] = useState("");
 
@@ -75,30 +75,28 @@ export default function CatchingDesk() {
   };
   const toastErr = (m) => setErr(m);
 
-  /* โหลดคิว + สถานะเอกสาร AH (รายคิว) */
+  /* โหลดคิว + สถานะเอกสาร AH (แบบฟาร์ม+วัน; ไม่แก้สคีมา) */
   const loadQueues = useCallback(async () => {
     setErr("");
     setBusy(true);
     try {
       if (!me?.id) throw new Error("ไม่พบผู้ใช้ปัจจุบัน");
 
-      // 0) ดึงรายการฟาร์มที่ผู้ใช้รับผิดชอบ (active)
+      // 0) ฟาร์มที่ผู้ใช้รับผิดชอบ (active)
       const { data: myFarms, error: eF } = await supabase
         .from("catching_farm_relations")
         .select("farm_id, status")
         .eq("catching_id", me.id)
         .eq("status", "active");
-
       if (eF) throw eF;
 
       const farmIds = Array.from(new Set((myFarms || []).map((x) => x.farm_id).filter(Boolean)));
-
       if (farmIds.length === 0) {
         setRows([]);
         return;
       }
 
-      // 1) ดึงคิวภายในช่วงวันนี้→+7 วัน (เฉพาะฟาร์มที่รับผิดชอบ)
+      // 1) คิววันนี้→+7 วัน (เฉพาะฟาร์มที่รับผิดชอบ)
       const { data, error } = await supabase
         .from("v_plan_queue_simple")
         .select(
@@ -110,13 +108,12 @@ export default function CatchingDesk() {
             "house",
             "farm_name",
             "factory",
-            "fasting",
+            // !! ตัด fasting และ plate ออก เพราะไม่มีใน view
             "delivery_time",
             "timetrucktofarm",
             "catch_time",
             "arrive_factory_time",
             "farm_id",
-            "plate",
           ].join(", ")
         )
         .gte("delivery_date", start)
@@ -126,45 +123,46 @@ export default function CatchingDesk() {
         .order("plant", { ascending: true })
         .order("branch", { ascending: true })
         .order("house", { ascending: true });
-
       if (error) throw error;
-      const baseRows = data || [];
-      const planIds = baseRows.map((r) => r.plan_id);
 
-      // 2) โหลดอัลบั้มเอกสารของ AH (รายคิว) ด้วย plan_id + category='ah'
-      let docStatusByPlan = new Map(); // plan_id -> 'need_fix'|'ok'|'none'
-      if (planIds.length) {
+      const baseRows = data || [];
+
+      // 2) โหลดสถานะเอกสารจาก AH (ตามฟาร์ม+วันที่; นับไฟล์)
+      const keySet = new Set(baseRows.map((r) => `${r.farm_id}|${r.delivery_date}`));
+      let statusByKey = new Map(); // key -> 'need_fix'|'ok'|'none'
+
+      if (keySet.size) {
+        const farmList = Array.from(new Set(baseRows.map((r) => r.farm_id)));
         const { data: albums } = await supabase
           .from("plan_doc_albums")
-          .select("id, plan_id, returned_for_fix")
-          .eq("category", "ah")
-          .in("plan_id", planIds);
+          .select("id, farm_id, delivery_date, returned_for_fix")
+          .in("farm_id", farmList)
+          .gte("delivery_date", start)
+          .lte("delivery_date", end);
 
+        const byKey = new Map((albums || []).map((a) => [`${a.farm_id}|${a.delivery_date}`, a]));
         const albumIds = (albums || []).map((a) => a.id);
 
-        // นับไฟล์ในอัลบั้ม
-        const countByAlbum = new Map();
+        let cntByAlbum = new Map();
         if (albumIds.length) {
           const { data: fs } = await supabase
             .from("plan_doc_files")
             .select("id, album_id")
             .in("album_id", albumIds);
-          for (const f of fs || []) {
-            countByAlbum.set(f.album_id, (countByAlbum.get(f.album_id) || 0) + 1);
-          }
+          (fs || []).forEach((f) => cntByAlbum.set(f.album_id, (cntByAlbum.get(f.album_id) || 0) + 1));
         }
 
-        for (const a of albums || []) {
-          const c = countByAlbum.get(a.id) || 0;
-          const status = a.returned_for_fix ? "need_fix" : c > 0 ? "ok" : "none";
-          docStatusByPlan.set(a.plan_id, status);
+        for (const k of keySet) {
+          const a = byKey.get(k);
+          if (!a) { statusByKey.set(k, "none"); continue; }
+          const c = cntByAlbum.get(a.id) || 0;
+          statusByKey.set(k, a.returned_for_fix ? "need_fix" : c > 0 ? "ok" : "none");
         }
       }
 
-      // 3) รวมสถานะกลับไปที่คิว
       const merged = baseRows.map((r) => ({
         ...r,
-        ah_doc_status: docStatusByPlan.get(r.plan_id) || "none",
+        ah_doc_status: statusByKey.get(`${r.farm_id}|${r.delivery_date}`) || "none",
       }));
 
       setRows(merged);
@@ -179,12 +177,12 @@ export default function CatchingDesk() {
     loadQueues();
   }, [loadQueues]);
 
-  /* filter โดยคำค้น */
+  /* filter โดยคำค้น (ตัด plate ออก) */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) =>
-      [r.delivery_date, r.farm_name, r.plant, r.branch, r.house, r.factory, r.plate]
+      [r.delivery_date, r.farm_name, r.plant, r.branch, r.house, r.factory]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -264,8 +262,8 @@ export default function CatchingDesk() {
     }
   };
 
-  /* ---------- เอกสารจาก AH: modal (รายคิว) ---------- */
-  const openDocs = async (plan_id) => {
+  /* ---------- เอกสารจาก AH: modal (ฟาร์ม+วัน) ---------- */
+  const openDocs = async (farm_id, delivery_date) => {
     setDocErr("");
     setDocBusy(true);
     setDocAlbum(null);
@@ -274,15 +272,15 @@ export default function CatchingDesk() {
     setDocOpen(true);
 
     try {
-      // หาอัลบั้มรายคิว (category='ah' + plan_id)
-      const { data: album, error: e1 } = await supabase
+      const { data: albums, error: e1 } = await supabase
         .from("plan_doc_albums")
-        .select("id, plan_id, delivery_date, returned_for_fix, return_reason")
-        .eq("category", "ah")
-        .eq("plan_id", plan_id)
-        .maybeSingle();
+        .select("id, farm_id, delivery_date, returned_for_fix, return_reason")
+        .eq("farm_id", farm_id)
+        .eq("delivery_date", delivery_date)
+        .limit(1);
       if (e1) throw e1;
 
+      const album = (albums && albums[0]) || null;
       if (!album) {
         setDocAlbum(null);
         setDocFiles([]);
@@ -291,7 +289,6 @@ export default function CatchingDesk() {
       }
       setDocAlbum(album);
 
-      // โหลดไฟล์ในอัลบั้ม
       const { data: files, error: e2 } = await supabase
         .from("plan_doc_files")
         .select("id, file_name, file_url, mime_type, file_bytes, created_at")
@@ -413,7 +410,7 @@ export default function CatchingDesk() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="ค้นหา (วันที่/ฟาร์ม/plant-branch-house/โรงงาน/ทะเบียน)"
+              placeholder="ค้นหา (วันที่/ฟาร์ม/plant-branch-house/โรงงาน)"
               className="rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500 w-72"
             />
             <button
@@ -447,7 +444,7 @@ export default function CatchingDesk() {
               <div key={r.plan_id} className="rounded-xl border border-amber-200 bg-white p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-semibold">
-                    {r.delivery_date} • {r.plant} / {r.branch} / {r.house} — {r.farm_name || "-"} · รถ {r.plate || "-"}
+                    {r.delivery_date} • {r.plant} / {r.branch} / {r.house} — {r.farm_name || "-"}
                   </div>
                   <div className="flex items-center gap-2">
                     <Pill color={r.ah_doc_status === "need_fix" ? "red" : r.ah_doc_status === "ok" ? "green" : "slate"}>
@@ -456,13 +453,13 @@ export default function CatchingDesk() {
                     <button
                       type="button"
                       disabled={!canOpenDocs}
-                      onClick={() => openDocs(r.plan_id)}
+                      onClick={() => openDocs(r.farm_id, r.delivery_date)}
                       className={`rounded-md px-3 py-1.5 text-sm border ${
                         canOpenDocs
                           ? "bg-amber-50 border-amber-300 hover:bg-amber-100"
                           : "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
                       }`}
-                      title={canOpenDocs ? "เปิดดูเอกสาร AH (รายคิว)" : "ยังไม่มีเอกสารของคิวนี้"}
+                      title={canOpenDocs ? "เปิดดูเอกสาร AH (ฟาร์ม+วัน)" : "ยังไม่มีเอกสารสำหรับฟาร์ม/วันนี้"}
                     >
                       ดูเอกสาร
                     </button>
@@ -473,7 +470,7 @@ export default function CatchingDesk() {
                 <div className="mt-2 text-sm text-gray-700">
                   โรงงาน: <b>{r.factory || "-"}</b>
                   <div className="text-xs text-gray-600 mt-1">
-                    อดอาหาร: <b>{r.fasting ?? "-"}</b> · เวลาแผน: <b>{r.delivery_time ?? "-"}</b> · เวลาไปฟาร์ม:{" "}
+                    เวลาแผน: <b>{r.delivery_time ?? "-"}</b> · เวลาไปฟาร์ม:{" "}
                     <b>{r.timetrucktofarm ?? "-"}</b> · เวลาจับ: <b>{r.catch_time ?? "-"}</b> · ถึงโรงงาน:{" "}
                     <b>{r.arrive_factory_time ?? "-"}</b>
                   </div>
@@ -555,12 +552,12 @@ export default function CatchingDesk() {
         </div>
       </main>
 
-      {/* ---------- Modal ดูเอกสาร AH (รายคิว) ---------- */}
+      {/* ---------- Modal ดูเอกสาร AH (ฟาร์ม+วัน) ---------- */}
       {docOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="w-full max-w-2xl bg-white rounded-xl shadow border border-amber-200">
             <div className="px-4 py-3 bg-amber-100 border-b border-amber-200 rounded-t-xl flex items-center justify-between">
-              <div className="font-semibold">เอกสารจาก Animal husbandry (รายคิว)</div>
+              <div className="font-semibold">เอกสารจาก Animal husbandry</div>
               <button onClick={closeDocs} className="rounded-md px-2 py-1 border border-amber-300 hover:bg-amber-200">
                 ปิด
               </button>
@@ -574,7 +571,7 @@ export default function CatchingDesk() {
               {docBusy ? (
                 <div className="text-gray-500">กำลังโหลดเอกสาร…</div>
               ) : !docAlbum ? (
-                <div className="text-gray-600">ไม่พบอัลบั้มเอกสารของคิวนี้</div>
+                <div className="text-gray-600">ไม่พบอัลบั้มเอกสารสำหรับฟาร์ม/วันที่นี้</div>
               ) : (
                 <>
                   <div className="text-sm text-gray-700">
