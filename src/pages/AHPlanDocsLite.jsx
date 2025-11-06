@@ -15,18 +15,12 @@ function Banner({ type = "info", children }) {
 /* ---------- utils ---------- */
 const iso = (d) => new Date(d).toISOString().slice(0, 10);
 const todayISO = () => iso(new Date());
-const plusDaysISO = (n) => {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return iso(d);
-};
+const plusDaysISO = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
 const isImage = (mt) => /^image\//i.test(mt || "");
-const isPdf = (mt) => /^application\/pdf$/i.test(mt || "");
-const norm = (s) =>
-  String(s ?? "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
+const isPdf   = (mt) => /^application\/pdf$/i.test(mt || "");
+const norm = (s) => String(s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+const asISODateStr = (v) => (v ? String(v).slice(0, 10) : null); // กัน TZ drift
+const log = (...a) => console.debug("[AHPlanDocsLite]", ...a);
 
 function farmLabel(f) {
   if (!f) return "";
@@ -36,18 +30,9 @@ function farmLabel(f) {
 
 /* ---------- image compress ≤1MB ---------- */
 async function fileToImage(file) {
-  const dataUrl = await new Promise((res, rej) => {
-    const fr = new FileReader();
-    fr.onload = () => res(fr.result);
-    fr.onerror = rej;
-    fr.readAsDataURL(file);
-  });
+  const dataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
   const img = new Image();
-  await new Promise((res, rej) => {
-    img.onload = res;
-    img.onerror = rej;
-    img.src = dataUrl;
-  });
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataUrl; });
   return img;
 }
 async function compressImage(file, { maxEdge = 1600, targetBytes = 1_000_000, q0 = 0.85 } = {}) {
@@ -60,12 +45,9 @@ async function compressImage(file, { maxEdge = 1600, targetBytes = 1_000_000, q0
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-
   const toBlob = (q) => new Promise((r) => canvas.toBlob(r, "image/jpeg", q));
   let q = q0, blob = await toBlob(q);
-  while (blob && blob.size > targetBytes && q > 0.5) {
-    q -= 0.07; blob = await toBlob(q);
-  }
+  while (blob && blob.size > targetBytes && q > 0.5) { q -= 0.07; blob = await toBlob(q); }
   let tries = 0;
   while (blob && blob.size > targetBytes && tries < 2) {
     tries++;
@@ -104,17 +86,11 @@ function SearchBox({ list, value, onChange }) {
             key={p.id}
             onClick={() => onChange(p)}
             type="button"
-            className={`block w-full text-left rounded-md px-3 pb-2 pt-0 border overflow-hidden ${
-              value?.id === p.id ? "ring-2 ring-emerald-500" : ""
-            }`}
+            className={`block w-full text-left rounded-md px-3 pb-2 pt-0 border overflow-hidden ${value?.id === p.id ? "ring-2 ring-emerald-500" : ""}`}
           >
             <div className="h-1 w-full bg-emerald-600 mb-2" />
-            <div className="font-medium">
-              {p.date} • {farmLabel(p.farm)}
-            </div>
-            <div className="text-xs text-gray-600">
-              โรงงาน: {p.factory || "-"} · รถ {p.plate || "-"} {p.returned_for_fix ? "· (ตีกลับ)" : ""}
-            </div>
+            <div className="font-medium">{p.date} • {farmLabel(p.farm)}</div>
+            <div className="text-xs text-gray-600">โรงงาน: {p.factory || "-"} · รถ {p.plate || "-"} {p.returned_for_fix ? "· (ตีกลับ)" : ""}</div>
           </button>
         ))}
         {!results.length && <div className="text-center text-gray-500 py-6">ไม่พบข้อมูล</div>}
@@ -140,15 +116,11 @@ export default function AHPlanDocsLite() {
   const [files, setFiles] = useState([]);   // [{file, previewUrl, mime}]
   const maxFiles = 8;
 
-  const onAnyAction = (fn) => async (...args) => {
-    if (err) setErr("");
-    return fn?.(...args);
-  };
+  const onAnyAction = (fn) => async (...args) => { if (err) setErr(""); return fn?.(...args); };
 
   /* โหลดคิวแบบ “รายคิว” วันนี้→+7 ที่ยังไม่มีไฟล์ หรือถูกตีกลับ */
   const loadPending = useCallback(async () => {
-    setErr("");
-    setBusy(true);
+    setErr(""); setBusy(true);
     try {
       if (!me?.id) throw new Error("ไม่พบผู้ใช้ปัจจุบัน");
 
@@ -162,11 +134,11 @@ export default function AHPlanDocsLite() {
       const myFarms = (rel || []).map((r) => r.farm).filter(Boolean);
       const farmById = new Map(myFarms.map((f) => [f.id, f]));
 
-      // แผนวันนี้..+7 (ต้องมี farm_id)
+      // แผนวันนี้..+7 (ใช้ตารางจริงตามสคีมา)
       const start = todayISO();
       const end = plusDaysISO(7);
       const { data: plans, error: e2 } = await supabase
-        .from("planning_plan_full")
+        .from("planning_plan_full_raw")
         .select("id, delivery_date, plant, branch, house, farm_name, factory, farm_id, plate")
         .gte("delivery_date", start)
         .lte("delivery_date", end);
@@ -187,27 +159,23 @@ export default function AHPlanDocsLite() {
         if (!f) continue;
         mine.push({
           id: p.id,
-          date: iso(p.delivery_date),
+          date: asISODateStr(p.delivery_date) || iso(p.delivery_date),
           factory: p.factory || null,
           plate: p.plate || null,
-          farm: f,
+          farm: f
         });
       }
-      if (!mine.length) {
-        setItems([]);
-        setBusy(false);
-        return;
-      }
+      if (!mine.length) { setItems([]); setBusy(false); return; }
 
-      // หาอัลบั้มรายคิว (category = 'ah')
+      // หาอัลบั้ม “รายคิว” โดย plan_id
+      const planIds = mine.map(m => m.id);
       const { data: albums } = await supabase
         .from("plan_doc_albums")
         .select("id, plan_id, returned_for_fix")
-        .eq("category", "ah")
-        .in("plan_id", mine.map((m) => m.id));
+        .in("plan_id", planIds);
 
-      const albumByPlan = new Map((albums || []).map((a) => [a.plan_id, a]));
-      const albumIds = (albums || []).map((a) => a.id);
+      const albumByPlan = new Map((albums || []).map(a => [a.plan_id, a]));
+      const albumIds = (albums || []).map(a => a.id);
 
       // นับไฟล์ในอัลบั้ม
       const countByAlbum = new Map();
@@ -219,7 +187,7 @@ export default function AHPlanDocsLite() {
         for (const r of fs || []) countByAlbum.set(r.album_id, (countByAlbum.get(r.album_id) || 0) + 1);
       }
 
-      // เงื่อนไขคิว: ยังไม่มีไฟล์ หรือ ถูกตีกลับ
+      // เงื่อนไขคิวค้าง: ยังไม่มีอัลบั้ม/ไฟล์ หรือถูกตีกลับ
       const pending = mine
         .filter((m) => {
           const a = albumByPlan.get(m.id);
@@ -236,47 +204,82 @@ export default function AHPlanDocsLite() {
       setItems(pending);
     } catch (e) {
       setErr(e.message || "โหลดข้อมูลไม่สำเร็จ");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }, [me?.id]);
 
   useEffect(() => { loadPending(); }, [loadPending]);
 
-  /* เมื่อเลือกคิว → หา/สร้างอัลบั้มของคิว (category='ah') */
+  /* เมื่อเลือกคิว → หา/สร้างอัลบั้มของคิว (รายคิว/plan_id) */
   useEffect(() => {
     const go = async () => {
-      setAlbumId(null);
-      setFiles([]);
-      setNote("");
+      setAlbumId(null); setFiles([]); setNote("");
       if (!sel) return;
 
-      // หาอัลบั้มรายคิว
-      const { data: existed } = await supabase
-        .from("plan_doc_albums")
-        .select("id, returned_for_fix")
-        .eq("category", "ah")
-        .eq("plan_id", sel.id)
-        .maybeSingle();
+      try {
+        const groupKey = `plan:${sel.id}`;
+        let aid = null;
 
-      let aid = existed?.id;
-      if (!aid) {
-        const { data: ins, error: eIns } = await supabase
+        // 1) หาโดย plan_id ก่อน
+        log("lookup by plan_id", sel.id);
+        const byPlan = await supabase
           .from("plan_doc_albums")
-          .insert({
-            plan_id: sel.id,
-            category: "ah",
-            delivery_date: sel.date,
-            farm_id: sel.farm.id,
-            ah_id: me?.id || null,
-            returned_for_fix: false,
-          })
           .select("id")
-          .single();
-        if (eIns) { setErr(eIns.message); return; }
-        aid = ins.id;
+          .eq("plan_id", sel.id)
+          .maybeSingle();
+        if (byPlan.error) throw byPlan.error;
+        aid = byPlan.data?.id ?? null;
+
+        // 2) ถ้ายังไม่พบ ลองหาโดย group_key (รองรับข้อมูลเก่า)
+        if (!aid) {
+          log("fallback lookup by group_key", groupKey);
+          const byKey = await supabase
+            .from("plan_doc_albums")
+            .select("id")
+            .eq("group_key", groupKey)
+            .maybeSingle();
+          if (byKey.error) throw byKey.error;
+          aid = byKey.data?.id ?? null;
+        }
+
+        // 3) ถ้ายังไม่พบ — ใช้วิธี B: INSERT + ignore duplicates แล้วค่อย SELECT
+        if (!aid) {
+          const payload = {
+            group_key: groupKey,
+            plan_id: sel.id,
+            farm_id: sel.farm.id,
+            delivery_date: sel.date, // YYYY-MM-DD
+            returned_for_fix: false,
+            ah_id: me?.id || null,
+          };
+          log("insert (ignore duplicates) album", payload);
+
+          // (A) พยายามสร้าง — ถ้ามีอยู่แล้วจะไม่ error และจะไม่ได้ id กลับมา
+          const { data: insData, error: insErr } = await supabase
+            .from("plan_doc_albums")
+            .insert(payload, { onConflict: "plan_id", ignoreDuplicates: true })
+            .select("id");
+
+          if (insErr && insErr.code !== "23505") throw insErr;
+
+          if (insData?.[0]?.id) {
+            aid = insData[0].id;
+          } else {
+            // (B) มีอยู่แล้ว → ดึงของเดิม
+            log("fetch existing by plan_id (after ignore)");
+            const { data: existed, error: se } = await supabase
+              .from("plan_doc_albums")
+              .select("id")
+              .eq("plan_id", sel.id)
+              .maybeSingle();
+            if (se) throw se;
+            aid = existed?.id ?? null;
+          }
+        }
+
+        setAlbumId(aid);
+      } catch (e) {
+        setErr(e.message || "เตรียมอัลบั้มไม่สำเร็จ");
       }
-      setAlbumId(aid);
     };
     go();
   }, [sel, me?.id]);
@@ -327,7 +330,8 @@ export default function AHPlanDocsLite() {
 
         const { error: ei } = await supabase.from("plan_doc_files").insert({
           album_id: albumId,
-          note,
+          ah_note: note,   // << เก็บหมายเหตุจาก AH
+          note: null,      // << เว้นไว้ให้ฝ่ายตรวจ (APPROVED/REJECT)
           file_url: pub.publicUrl,
           file_name: path,
           file_bytes: f.size,
@@ -346,16 +350,13 @@ export default function AHPlanDocsLite() {
       setTimeout(() => setMsg(""), 3000);
 
       setFiles([]);
-      // เอาแถวนี้ออกจากคิว
       setItems((old) => old.filter((p) => p.id !== sel.id));
       setSel(null);
       setAlbumId(null);
       setNote("");
     } catch (e) {
       setErr(e.message || "อัปโหลดไม่สำเร็จ");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   return (
@@ -363,9 +364,7 @@ export default function AHPlanDocsLite() {
       <header className="bg-emerald-600 text-white">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <h1 className="text-2xl font-semibold">อัปโหลดเอกสาร PDF/รูป (คิววันนี้ → +7 วัน)</h1>
-          <Link to="/ah" className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20">
-            กลับหน้า Animal husbandry
-          </Link>
+          <Link to="/ah" className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20">กลับหน้า Animal husbandry</Link>
         </div>
       </header>
 
@@ -412,19 +411,13 @@ export default function AHPlanDocsLite() {
                 className="mb-2 block w-full text-sm"
                 disabled={!sel}
               />
-              <div className="text-xs text-gray-600 mb-2">
-                รองรับ PDF/รูป สูงสุด {maxFiles} ไฟล์ (ไฟล์รูปจะถูกย่อ ≤ 1MB อัตโนมัติ)
-              </div>
+              <div className="text-xs text-gray-600 mb-2">รองรับ PDF/รูป สูงสุด {maxFiles} ไฟล์ (ไฟล์รูปจะถูกย่อ ≤ 1MB อัตโนมัติ)</div>
 
               {files.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {files.map((it, i) => (
                     <div key={i} className="w-24 h-24 rounded-md border overflow-hidden flex items-center justify-center">
-                      {isImage(it.mime) ? (
-                        <img src={it.previewUrl} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-xs text-gray-600">PDF</span>
-                      )}
+                      {isImage(it.mime) ? <img src={it.previewUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-xs text-gray-600">PDF</span>}
                     </div>
                   ))}
                 </div>
