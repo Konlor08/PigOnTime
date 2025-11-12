@@ -45,7 +45,7 @@ const STD_MAP = {
 
   // day-fraction/raw
   อดอาหาร: "อดอาหาร_raw",
-  นัดรถ: "นัดรถ", // เป็น date จริง อย่าตัดเวลาในฝั่งนี้
+  นัดรถ: "นัดรถ_raw", // ส่ง raw ให้ DB แปลงเป็น timestamp ('นัดรถ')
   วันที่จับ: "วันที่จับ_raw",
   เวลาจับ: "เวลาจับ_raw",
   ออกฟาร์ม: "ออกฟาร์ม_raw",
@@ -66,8 +66,8 @@ const STD_MAP = {
   โรงงาน: "factory",
 
   // SITE
-  SITE: "SITE",
-  site: "SITE",
+  SITE: "site",
+  site: "site",
 };
 
 /** ฟิลด์ที่อนุญาต (ต้องตรงกับ DB) */
@@ -75,7 +75,8 @@ const ALLOWED_COLS = new Set([
   "pk",
   "file_name",
   "file_id",
-  "SITE",
+  "site",         // ✅ ใช้คอลัมน์จริงใน DB (ตัวพิมพ์เล็ก)
+  "SITE",         // (อนุโลมกรณีถูกแมปมาก่อน แต่สุดท้ายจะถูกแปลงเป็น "site")
   "index_no",
   "delivery_date",
   "delivery_time",
@@ -90,7 +91,8 @@ const ALLOWED_COLS = new Set([
   "quantity",
   "plate",
 
-  "นัดรถ",
+  // ✅ ใช้ raw แทนคอลัมน์ generated
+  "นัดรถ_raw",
 
   "อดอาหาร_raw",
   "วันที่จับ_raw",
@@ -179,10 +181,12 @@ function buildPk(r) {
     return `IDX|${r.index_no}|${r.delivery_date ?? ""}`;
   }
 
-  // pk แบบ 4 คีย์: วันที่ + ฟาร์ม + ทะเบียนรถ + เวลาถึงโรงงาน
+  // pk ใหม่: วันที่ + (plant|branch|house) + ทะเบียนรถ + เวลาถึงโรงงาน
   return [
     r.delivery_date ?? "",
-    r.farm_name ?? "",
+    r.plant ?? "",
+    r.branch ?? "",
+    r.house ?? "",
     r.plate ?? "",
     r.delivery_time ?? "",
   ]

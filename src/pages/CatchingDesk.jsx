@@ -11,6 +11,17 @@ const fmtDate = (d) =>
     day: "2-digit",
   });
 
+  // ใช้ตัดสิน team_count จากอินพุต/ค่าเดิม
+const resolveTeamCount = (row) => {
+  const plan_id = row.plan_id;
+  const n1 = Number(teamByPlan[plan_id]);
+  if (Number.isFinite(n1)) return n1;            // ค่าที่กรอกในหน้า
+
+  const n2 = Number(row.last_team_count);
+  return Number.isFinite(n2) ? n2 : 0;           // ค่าล่าสุดจากระบบ หรือ 0
+};
+
+
 /** แก้ปัญหา UTC: คืนค่า YYYY-MM-DD ตามเวลาท้องถิ่น (Asia/Bangkok) */
 const toLocalISODate = (d) => {
   const y = d.getFullYear();
@@ -98,8 +109,7 @@ export default function CatchingDesk() {
   const [query, setQuery] = useState("");
 
   // รู้ว่าผู้ใช้มีสิทธิ์ฟาร์มหรือไม่: null=ยังไม่รู้, true/false
-const [hasFarmAccess, setHasFarmAccess] = useState(null);
-
+  const [hasFarmAccess, setHasFarmAccess] = useState(null);
 
   // อินพุตต่อคิว
   const [teamByPlan, setTeamByPlan] = useState({}); // { plan_id: number|string }
@@ -147,12 +157,11 @@ const [hasFarmAccess, setHasFarmAccess] = useState(null);
       setHasFarmAccess(farmIds.length > 0);
 
       if (!farmIds.length) {
-  setHasFarmAccess(false);
-  setRows([]);
-  setLastNoteByPlan({});
-  return;
-}
-
+        setHasFarmAccess(false);
+        setRows([]);
+        setLastNoteByPlan({});
+        return;
+      }
 
       const { data, error } = await supabase
         .from("v_plan_queue_simple")
@@ -181,7 +190,7 @@ const [hasFarmAccess, setHasFarmAccess] = useState(null);
         .gte("delivery_date", start)
         .lte("delivery_date", end)
         .in("farm_id", farmIds)
-        .is("actual_end_at", null) // <<< แสดงเฉพาะคิวที่ยังไม่จบจับ
+        .is("actual_end_at", null) // แสดงเฉพาะคิวที่ยังไม่จบจับ
         .order("delivery_date", { ascending: true })
         .order("plant", { ascending: true })
         .order("branch", { ascending: true })
@@ -226,7 +235,9 @@ const [hasFarmAccess, setHasFarmAccess] = useState(null);
           .from("plan_doc_files")
           .select("id,album_id")
           .in("album_id", albumIds);
-        (fs || []).forEach((f) => cntByAlbum.set(f.album_id, (cntByAlbum.get(f.album_id) || 0) + 1));
+        (fs || []).forEach((f) =>
+          cntByAlbum.set(f.album_id, (cntByAlbum.get(f.album_id) || 0) + 1)
+        );
       }
 
       const merged = baseRows.map((r) => {
@@ -283,6 +294,34 @@ const [hasFarmAccess, setHasFarmAccess] = useState(null);
   const saveTeamCount = async () => {
     toastOk("จดจำจำนวนทีมจับแล้ว (จะบันทึกจริงตอนเริ่ม/จบจับ)");
   };
+
+  /* NEW: ถึงฟาร์ม — บันทึก arrived_at ลง catching_sessions */
+  const arriveFarmNow = async (row) => {
+  const plan_id = row.plan_id;
+  const n = resolveTeamCount(row);               // <<< ดึง team_count
+
+  setErr("");
+  setBusy(true);
+  try {
+    const { error } = await supabase.from("catching_sessions").insert({
+      plan_id,
+      team_count: n,                              // <<< เพิ่มบรรทัดนี้
+      arrived_at: new Date().toISOString(),
+      created_by: me.id,
+    });
+    if (error) throw error;
+
+    const now = new Date();
+    setActionMsgByPlan((p) => ({ ...p, [plan_id]: `ถึงฟาร์ม ${fmtHM(now)}` }));
+    toastOk("บันทึกเวลาถึงฟาร์มแล้ว");
+    loadQueues();
+  } catch (e) {
+    toastErr(e.message || "บันทึกเวลาถึงฟาร์มไม่สำเร็จ");
+  } finally {
+    setBusy(false);
+  }
+};
+
 
   /* เริ่มจับ / จบจับ — แสดงผลเปรียบเทียบกับ “เวลาแผนจับ” (catch_plan_ts) */
   const startCatching = async (row) => {
@@ -430,9 +469,14 @@ const [hasFarmAccess, setHasFarmAccess] = useState(null);
     setDocBusy(true);
     setDocErr("");
     try {
-      const { error } = await supabase.from("plan_doc_files").update({ note: "APPROVED" }).eq("id", fileId);
+      const { error } = await supabase
+        .from("plan_doc_files")
+        .update({ note: "APPROVED" })
+        .eq("id", fileId);
       if (error) throw error;
-      setDocFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, note: "APPROVED" } : f)));
+      setDocFiles((prev) =>
+        prev.map((f) => (f.id === fileId ? { ...f, note: "APPROVED" } : f))
+      );
     } catch (e) {
       setDocErr(e.message || "อัปเดตสถานะไฟล์ไม่สำเร็จ");
     } finally {
@@ -449,9 +493,14 @@ const [hasFarmAccess, setHasFarmAccess] = useState(null);
     setDocBusy(true);
     setDocErr("");
     try {
-      const { error } = await supabase.from("plan_doc_files").update({ note: `REJECT:${text}` }).eq("id", fileId);
+      const { error } = await supabase
+        .from("plan_doc_files")
+        .update({ note: `REJECT:${text}` })
+        .eq("id", fileId);
       if (error) throw error;
-      setDocFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, note: `REJECT:${text}` } : f)));
+      setDocFiles((prev) =>
+        prev.map((f) => (f.id === fileId ? { ...f, note: `REJECT:${text}` } : f))
+      );
     } catch (e) {
       setDocErr(e.message || "อัปเดตสถานะไฟล์ไม่สำเร็จ");
     } finally {
@@ -522,15 +571,14 @@ const [hasFarmAccess, setHasFarmAccess] = useState(null);
         <div className="space-y-3">
           {busy && <div className="text-gray-500">กำลังโหลด…</div>}
           {!busy && filtered.length === 0 && (
-  <div className="rounded-lg border border-amber-200 bg-white p-4 text-gray-600">
-    {query?.trim()
-      ? "ไม่พบคิวตามเงื่อนไข"
-      : hasFarmAccess === false
-          ? "คุณยังไม่มีฟาร์มที่รับผิดชอบ หรือยังไม่ได้รับสิทธิ์เข้าถึงฟาร์ม"
-          : "ช่วงวันที่นี้ยังไม่มีคิวสำหรับฟาร์มที่คุณรับผิดชอบ"}
-  </div>
-)}
-
+            <div className="rounded-lg border border-amber-200 bg-white p-4 text-gray-600">
+              {query?.trim()
+                ? "ไม่พบคิวตามเงื่อนไข"
+                : hasFarmAccess === false
+                ? "คุณยังไม่มีฟาร์มที่รับผิดชอบ หรือยังไม่ได้รับสิทธิ์เข้าถึงฟาร์ม"
+                : "ช่วงวันที่นี้ยังไม่มีคิวสำหรับฟาร์มที่คุณรับผิดชอบ"}
+            </div>
+          )}
 
           {filtered.map((r) => {
             const plan_id = r.plan_id;
@@ -600,6 +648,18 @@ const [hasFarmAccess, setHasFarmAccess] = useState(null);
                     >
                       บันทึกจำนวนคน
                     </button>
+
+                    {/* NEW: ปุ่มถึงฟาร์ม */}
+                    <button
+                      type="button"
+                      disabled={busy || !!r.arrived_farm_at}
+                      title={r.arrived_farm_at ? "บันทึกแล้ว" : ""}
+                      onClick={() => arriveFarmNow(r)}
+                      className="rounded-md bg-sky-600 px-3 py-2 text-white hover:bg-sky-700 disabled:opacity-60"
+                    >
+                      ถึงฟาร์ม
+                    </button>
+
                     <button
                       type="button"
                       disabled={busy}

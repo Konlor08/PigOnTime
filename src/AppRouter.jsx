@@ -17,12 +17,14 @@ import AdminTrucks from "./pages/admin/AdminTrucks.jsx";
 import AdminRelations from "./pages/admin/AdminRelations.jsx";
 import LinkPlanningSites from "./pages/admin/LinkPlanningSites.jsx";
 import AdminAllTrucks from "./pages/admin/AdminAllTrucks.jsx";
+import AdminActivateFarms from "./pages/admin/AdminActivateFarms";
 
 /* ---------- planning ---------- */
 import PlanningHome from "./pages/PlanningHome.jsx";
 import UploadPlanning from "./pages/UploadPlanning.jsx";
 import planningdesk from "./pages/Planningdesk.jsx";
 import PlanningReportIssues from "./pages/PlanningReportIssues.jsx";
+import PlanningActivateFarms from "./pages/PlanningActivateFarms";
 
 
 /* ---------- AH  ---------- */
@@ -96,6 +98,7 @@ export default function AppRouter() {
         <Route path="/admin/relations" element={<AdminRelations />} />
         <Route path="/admin/planning-sites" element={<LinkPlanningSites />} />
         <Route path="/admin/all-trucks" element={<AdminAllTrucks />} />
+        <Route path="/admin/farms/activate" element={<AdminActivateFarms />} />
       </Route>
 
       {/* planning */}
@@ -104,6 +107,7 @@ export default function AppRouter() {
         <Route path="/planning/upload" element={<UploadPlanning />} />
         <Route path="/planning/transport" element={<planningdesk />} />
         <Route path="/planning/issues"element ={<PlanningReportIssues />} />
+        <Route path="/planning/farm-activate" element={<PlanningActivateFarms />} />
       </Route>
 
       {/* animal husbandry (ใหม่) */}
