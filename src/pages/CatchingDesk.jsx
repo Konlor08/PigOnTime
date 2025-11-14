@@ -5,31 +5,14 @@ import supabase from "../supabaseClient";
 
 /* ---------- helpers ---------- */
 const fmtDate = (d) =>
-  new Date(d).toLocaleDateString("th-TH", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  new Date(d).toLocaleDateString("th-TH", { year: "numeric", month: "2-digit", day: "2-digit" });
 
-  // ใช้ตัดสิน team_count จากอินพุต/ค่าเดิม
-const resolveTeamCount = (row) => {
-  const plan_id = row.plan_id;
-  const n1 = Number(teamByPlan[plan_id]);
-  if (Number.isFinite(n1)) return n1;            // ค่าที่กรอกในหน้า
-
-  const n2 = Number(row.last_team_count);
-  return Number.isFinite(n2) ? n2 : 0;           // ค่าล่าสุดจากระบบ หรือ 0
-};
-
-
-/** แก้ปัญหา UTC: คืนค่า YYYY-MM-DD ตามเวลาท้องถิ่น (Asia/Bangkok) */
 const toLocalISODate = (d) => {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 };
-
 const todayISO = () => toLocalISODate(new Date());
 const plusDaysISO = (n) => {
   const d = new Date();
@@ -52,42 +35,25 @@ function Pill({ children, color = "slate" }) {
   );
 }
 
-/* เวลาเปรียบเทียบกับคิว (รองรับคอลัมน์ time-only เดิม) */
-const parsePlanDateTime = (dateStr, timeStr) => {
-  if (!dateStr || !timeStr) return null;
-  const [hh = 0, mm = 0, ss = 0] = String(timeStr).split(":").map(Number);
-  const d = new Date(`${dateStr}T00:00:00`);
-  d.setHours(hh, mm, ss, 0);
-  return d;
-};
-
-const fmtHM = (d) =>
-  d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
-
-const diffLabelFromMs = (ms) => {
-  const mins = Math.round(Math.abs(ms) / 60000);
-  if (mins === 0) return "ตรงเวลา";
-  return ms > 0 ? `ช้ากว่าแผน ${mins} นาที` : `เร็วกว่าแผน ${mins} นาที`;
-};
-
-/* ฟอร์แมตจาก timestamp (มาจากวิว) */
 const fmtDT = (iso) =>
   iso ? new Date(iso).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) : "-";
-const fmtD = (iso) => (iso ? new Date(iso).toLocaleDateString("th-TH") : "-");
-const fmtT = (iso) =>
+const fmtD  = (iso) =>
+  iso ? new Date(iso).toLocaleDateString("th-TH") : "-";
+const fmtT  = (iso) =>
   iso ? new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-";
-const diffPlan = (actualIso, planIso) => {
-  if (!actualIso || !planIso) return "";
-  return diffLabelFromMs(new Date(actualIso) - new Date(planIso));
+const diffLabelFromMs = (ms) => {
+  const m = Math.round(Math.abs(ms) / 60000);
+  if (m === 0) return "ตรงเวลา";
+  return ms > 0 ? `ช้ากว่าแผน ${m} นาที` : `เร็วกว่าแผน ${m} นาที`;
 };
+const diffPlan = (actualIso, planIso) =>
+  !actualIso || !planIso ? "" : diffLabelFromMs(new Date(actualIso) - new Date(planIso));
 
-/* แปลง note ของไฟล์เอกสาร: สถานะตรวจ + หมายเหตุจาก AH */
 function parseDocNote(note) {
   const raw = String(note ?? "").trim();
   if (!raw) return { status: "pending", ahNote: "" };
   if (raw === "APPROVED") return { status: "approved", ahNote: "" };
-  if (raw.startsWith("REJECT:"))
-    return { status: "rejected", reason: raw.slice(7).trim(), ahNote: "" };
+  if (raw.startsWith("REJECT:")) return { status: "rejected", reason: raw.slice(7).trim(), ahNote: "" };
   return { status: "pending", ahNote: raw };
 }
 
@@ -105,24 +71,19 @@ export default function CatchingDesk() {
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
 
-  const [rows, setRows] = useState([]); // รายคิว
+  const [rows, setRows] = useState([]);
   const [query, setQuery] = useState("");
-
-  // รู้ว่าผู้ใช้มีสิทธิ์ฟาร์มหรือไม่: null=ยังไม่รู้, true/false
   const [hasFarmAccess, setHasFarmAccess] = useState(null);
 
-  // อินพุตต่อคิว
-  const [teamByPlan, setTeamByPlan] = useState({}); // { plan_id: number|string }
-  const [noteByPlan, setNoteByPlan] = useState({}); // { plan_id: string }
-  const [lastNoteByPlan, setLastNoteByPlan] = useState({}); // { plan_id: string }
-  const [actionMsgByPlan, setActionMsgByPlan] = useState({}); // ผลการกดต่อคิว
+  const [teamByPlan, setTeamByPlan] = useState({});
+  const [noteByPlan, setNoteByPlan] = useState({});
+  const [lastNoteByPlan, setLastNoteByPlan] = useState({});
 
-  // modal เอกสาร
   const [docOpen, setDocOpen] = useState(false);
   const [docBusy, setDocBusy] = useState(false);
   const [docErr, setDocErr] = useState("");
-  const [docAlbum, setDocAlbum] = useState(null); // {id, returned_for_fix}
-  const [docFiles, setDocFiles] = useState([]); // [{id, file_name, file_url, note}]
+  const [docAlbum, setDocAlbum] = useState(null);
+  const [docFiles, setDocFiles] = useState([]);
   const [docPlanId, setDocPlanId] = useState(null);
 
   const start = todayISO();
@@ -135,11 +96,20 @@ export default function CatchingDesk() {
   };
   const toastErr = (m) => setErr(m);
 
-  // mapping แสดงสถานะเอกสารเป็นภาษาไทย
   const DOC_THAI = { ok: "เรียบร้อย", need_fix: "ตีกลับ", none: "รอดำเนินการ" };
   const DOC_COLOR = { ok: "green", need_fix: "red", none: "slate" };
 
-  /* โหลดคิว + สถานะเอกสาร (กุญแจ farm_id+delivery_date) + หมายเหตุล่าสุด */
+  const resolveTeamCount = useCallback(
+    (row) => {
+      const n1 = Number(teamByPlan[row.plan_id]);
+      if (Number.isFinite(n1)) return n1;
+      const n2 = Number(row.last_team_count);
+      return Number.isFinite(n2) ? n2 : 0;
+    },
+    [teamByPlan]
+  );
+
+  /* โหลดคิว + เอกสาร + เวลาจาก catching_sessions */
   const loadQueues = useCallback(async () => {
     setErr("");
     setBusy(true);
@@ -148,16 +118,14 @@ export default function CatchingDesk() {
 
       const { data: myFarms, error: eF } = await supabase
         .from("catching_farm_relations")
-        .select("farm_id, status")
+        .select("farm_id,status")
         .eq("catching_id", me.id)
         .eq("status", "active");
       if (eF) throw eF;
 
       const farmIds = Array.from(new Set((myFarms || []).map((x) => x.farm_id).filter(Boolean)));
       setHasFarmAccess(farmIds.length > 0);
-
       if (!farmIds.length) {
-        setHasFarmAccess(false);
         setRows([]);
         setLastNoteByPlan({});
         return;
@@ -190,7 +158,6 @@ export default function CatchingDesk() {
         .gte("delivery_date", start)
         .lte("delivery_date", end)
         .in("farm_id", farmIds)
-        .is("actual_end_at", null) // แสดงเฉพาะคิวที่ยังไม่จบจับ
         .order("delivery_date", { ascending: true })
         .order("plant", { ascending: true })
         .order("branch", { ascending: true })
@@ -198,16 +165,14 @@ export default function CatchingDesk() {
       if (error) throw error;
 
       const baseRows = data || [];
-
       if (!baseRows.length) {
-        setLastNoteByPlan({});
         setRows([]);
+        setLastNoteByPlan({});
         return;
       }
 
-      // สถานะเอกสารแบบฟาร์ม+วัน
+      // เอกสาร
       const farmList = Array.from(new Set(baseRows.map((r) => r.farm_id).filter(Boolean)));
-
       let albums = [];
       if (farmList.length) {
         const { data: _albums, error: eAlbums } = await supabase
@@ -219,7 +184,6 @@ export default function CatchingDesk() {
         if (eAlbums) throw eAlbums;
         albums = _albums || [];
       }
-
       const key = (fid, d) => `${fid}|${d}`;
       const byKey = new Map(
         (albums || []).map((a) => [
@@ -231,29 +195,57 @@ export default function CatchingDesk() {
 
       const cntByAlbum = new Map();
       if (albumIds.length) {
-        const { data: fs } = await supabase
-          .from("plan_doc_files")
-          .select("id,album_id")
-          .in("album_id", albumIds);
-        (fs || []).forEach((f) =>
-          cntByAlbum.set(f.album_id, (cntByAlbum.get(f.album_id) || 0) + 1)
-        );
+        const { data: fs } = await supabase.from("plan_doc_files").select("id,album_id").in("album_id", albumIds);
+        (fs || []).forEach((f) => cntByAlbum.set(f.album_id, (cntByAlbum.get(f.album_id) || 0) + 1));
       }
 
-      const merged = baseRows.map((r) => {
+      let merged = baseRows.map((r) => {
         const a = byKey.get(key(r.farm_id, r.delivery_date));
-        if (!a) return { ...r, ah_doc_status: "none" };
-        const c = cntByAlbum.get(a.id) || 0;
-        return { ...r, ah_doc_status: a.returned_for_fix ? "need_fix" : c > 0 ? "ok" : "none" };
+        let ah_doc_status = "none";
+        if (a) {
+          const c = cntByAlbum.get(a.id) || 0;
+          ah_doc_status = a.returned_for_fix ? "need_fix" : c > 0 ? "ok" : "none";
+        }
+        return { ...r, ah_doc_status };
       });
 
-      // หมายเหตุล่าสุดของคิว
+      // เวลาจาก catching_sessions (fallback)
       const planIds = merged.map((r) => r.plan_id);
+      if (planIds.length) {
+        const { data: sess } = await supabase
+          .from("catching_sessions")
+          .select("plan_id, arrived_farm_at, arrived_at, start_at, end_at")
+          .in("plan_id", planIds);
+
+        const best = (map, pid, ts) => {
+          if (!ts) return;
+          const prev = map.get(pid);
+          if (!prev || new Date(ts) > new Date(prev)) map.set(pid, ts);
+        };
+
+        const arrivedMap = new Map();
+        const startMap = new Map();
+        const endMap = new Map();
+        (sess || []).forEach((s) => {
+          best(arrivedMap, s.plan_id, s.arrived_farm_at || s.arrived_at);
+          best(startMap, s.plan_id, s.start_at);
+          best(endMap, s.plan_id, s.end_at);
+        });
+
+        merged = merged.map((r) => ({
+          ...r,
+          arrived_farm_at: r.arrived_farm_at || arrivedMap.get(r.plan_id) || null,
+          actual_start_at: r.actual_start_at || startMap.get(r.plan_id) || null,
+          actual_end_at: r.actual_end_at || endMap.get(r.plan_id) || null,
+        }));
+      }
+
+      // หมายเหตุล่าสุด
       let latestNote = {};
       if (planIds.length) {
         const { data: revs } = await supabase
           .from("catching_reviews")
-          .select("plan_id, note, created_at")
+          .select("plan_id,note,created_at")
           .in("plan_id", planIds)
           .order("created_at", { ascending: false });
         for (const r of revs || []) {
@@ -269,7 +261,6 @@ export default function CatchingDesk() {
       toastErr(e.message || "โหลดข้อมูลไม่สำเร็จ");
     } finally {
       setBusy(false);
-      setHasFarmAccess(null);
     }
   }, [me?.id, start, end]);
 
@@ -277,7 +268,6 @@ export default function CatchingDesk() {
     loadQueues();
   }, [loadQueues]);
 
-  /* filter */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -290,63 +280,53 @@ export default function CatchingDesk() {
     );
   }, [rows, query]);
 
-  /* บันทึกจำนวนคน (เก็บไว้ใช้ตอน start/finish) */
   const saveTeamCount = async () => {
     toastOk("จดจำจำนวนทีมจับแล้ว (จะบันทึกจริงตอนเริ่ม/จบจับ)");
   };
 
-  /* NEW: ถึงฟาร์ม — บันทึก arrived_at ลง catching_sessions */
+  /* ถึงฟาร์ม */
   const arriveFarmNow = async (row) => {
-  const plan_id = row.plan_id;
-  const n = resolveTeamCount(row);               // <<< ดึง team_count
-
-  setErr("");
-  setBusy(true);
-  try {
-    const { error } = await supabase.from("catching_sessions").insert({
-      plan_id,
-      team_count: n,                              // <<< เพิ่มบรรทัดนี้
-      arrived_at: new Date().toISOString(),
-      created_by: me.id,
-    });
-    if (error) throw error;
-
-    const now = new Date();
-    setActionMsgByPlan((p) => ({ ...p, [plan_id]: `ถึงฟาร์ม ${fmtHM(now)}` }));
-    toastOk("บันทึกเวลาถึงฟาร์มแล้ว");
-    loadQueues();
-  } catch (e) {
-    toastErr(e.message || "บันทึกเวลาถึงฟาร์มไม่สำเร็จ");
-  } finally {
-    setBusy(false);
-  }
-};
-
-
-  /* เริ่มจับ / จบจับ — แสดงผลเปรียบเทียบกับ “เวลาแผนจับ” (catch_plan_ts) */
-  const startCatching = async (row) => {
     const plan_id = row.plan_id;
-    const n = Number(teamByPlan[plan_id] ?? 0) || Number(row.last_team_count ?? 0) || 0;
+    const n = resolveTeamCount(row);
     setErr("");
     setBusy(true);
     try {
+      const nowIso = new Date().toISOString();
       const { error } = await supabase.from("catching_sessions").insert({
         plan_id,
         team_count: n,
-        start_at: new Date().toISOString(),
+        arrived_at: nowIso,
+        arrived_farm_at: nowIso,
         created_by: me.id,
       });
       if (error) throw error;
 
-      const now = new Date();
-      const planDTiso = row.catch_plan_ts || null;
-      const msg = planDTiso
-        ? `เริ่มจับ ${fmtHM(now)} — ${diffLabelFromMs(now - new Date(planDTiso))} (แผน ${fmtT(
-            planDTiso
-          )})`
-        : `เริ่มจับ ${fmtHM(now)}`;
-      setActionMsgByPlan((p) => ({ ...p, [plan_id]: msg }));
+      setRows((prev) => prev.map((x) => (x.plan_id === plan_id ? { ...x, arrived_farm_at: nowIso } : x)));
+      toastOk("บันทึกเวลาถึงฟาร์มแล้ว");
+      loadQueues();
+    } catch (e) {
+      toastErr(e.message || "บันทึกเวลาถึงฟาร์มไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
 
+  /* เริ่มจับ */
+  const startCatching = async (row) => {
+    const plan_id = row.plan_id;
+    const n = resolveTeamCount(row);
+    setErr("");
+    setBusy(true);
+    try {
+      const ts = new Date().toISOString();
+      const { error } = await supabase.from("catching_sessions").insert({
+        plan_id,
+        team_count: n,
+        start_at: ts,
+        created_by: me.id,
+      });
+      if (error) throw error;
+      setRows((prev) => prev.map((x) => (x.plan_id === plan_id ? { ...x, actual_start_at: ts } : x)));
       toastOk("เริ่มจับแล้ว");
       loadQueues();
     } catch (e) {
@@ -356,48 +336,60 @@ export default function CatchingDesk() {
     }
   };
 
-  const finishCatching = async (row) => {
+  /* จบจับจริง */
+  const endCatching = async (row) => {
     const plan_id = row.plan_id;
-    const n = Number(teamByPlan[plan_id] ?? 0) || Number(row.last_team_count ?? 0) || 0;
+    const n = resolveTeamCount(row);
     const note = String(noteByPlan[plan_id] || "").trim() || null;
     setErr("");
     setBusy(true);
     try {
-      // ต้องเอกสาร 'เรียบร้อย' เท่านั้น
-      if (row.ah_doc_status !== "ok") {
-        throw new Error("เอกสารยังไม่เรียบร้อย กรุณาตรวจให้ 'เรียบร้อย' ก่อนปิดคิว");
-      }
-
-      const { error: e1 } = await supabase.from("catching_sessions").insert({
+      const ts = new Date().toISOString();
+      const { error } = await supabase.from("catching_sessions").insert({
         plan_id,
         team_count: n,
-        end_at: new Date().toISOString(),
+        end_at: ts,
         created_by: me.id,
       });
-      if (e1) throw e1;
+      if (error) throw error;
+      if (note) setLastNoteByPlan((p) => ({ ...p, [plan_id]: note }));
+      setRows((prev) => prev.map((x) => (x.plan_id === plan_id ? { ...x, actual_end_at: ts } : x)));
+      toastOk("บันทึกเวลาจบจับแล้ว");
+      loadQueues();
+    } catch (e) {
+      toastErr(e.message || "จบจับไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
 
-      const { error: e2 } = await supabase.from("catching_reviews").insert({
+  /* ปิดคิว */
+  const closeQueue = async (row) => {
+    const plan_id = row.plan_id;
+    const note = String(noteByPlan[plan_id] || "").trim() || null;
+
+    if (row.ah_doc_status !== "ok") {
+      toastErr("เอกสารยังไม่เรียบร้อย กรุณาตรวจให้ 'เรียบร้อย' ก่อนปิดคิว");
+      return;
+    }
+    if (!row.actual_end_at) {
+      toastErr("ยังไม่มีเวลาจบจับจริง กรุณากด 'จบจับจริง' ก่อน");
+      return;
+    }
+
+    setErr("");
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("catching_reviews").insert({
         plan_id,
         status: "finished",
         note,
         checked_by: me.id,
       });
-      if (e2) throw e2;
+      if (error) throw error;
 
-      const now = new Date();
-      const planDTiso = row.catch_plan_ts || null; // เปรียบเทียบกับ “แผนเวลาจับ”
-      const msg = planDTiso
-        ? `ปิดคิว ${fmtHM(now)} — ${diffLabelFromMs(now - new Date(planDTiso))} (แผน ${fmtT(
-            planDTiso
-          )})`
-        : `ปิดคิว ${fmtHM(now)}`;
-      setActionMsgByPlan((p) => ({ ...p, [plan_id]: msg }));
-
-      // เอาคิวออกจากจอทันที
       setRows((prev) => prev.filter((x) => x.plan_id !== plan_id));
-
       toastOk("ปิดคิวสำเร็จ");
-      // ไม่ reload ทันทีเพื่อความเร็ว ผู้ใช้กดปุ่มรีเฟรชได้ภายหลัง
     } catch (e) {
       toastErr(e.message || "ปิดคิวไม่สำเร็จ");
     } finally {
@@ -405,7 +397,6 @@ export default function CatchingDesk() {
     }
   };
 
-  /* บันทึกหมายเหตุ (ยังคง logic เดิม) */
   const saveNote = async (plan_id) => {
     const note = String(noteByPlan[plan_id] || "").trim();
     if (!note) return;
@@ -413,7 +404,7 @@ export default function CatchingDesk() {
     toastOk("บันทึกหมายเหตุชั่วคราวแล้ว (จะส่งไปพร้อมตอนปิดคิว)");
   };
 
-  /* ---------- Modal เอกสาร (กุญแจฟาร์ม+วัน) ---------- */
+  /* ---------- Modal เอกสาร ---------- */
   const openDocs = async (row) => {
     const { plan_id, farm_id, delivery_date } = row;
     setDocErr("");
@@ -426,7 +417,7 @@ export default function CatchingDesk() {
     try {
       const { data: albums2, error: e2 } = await supabase
         .from("plan_doc_albums")
-        .select("id, farm_id, delivery_date, returned_for_fix")
+        .select("id,farm_id,delivery_date,returned_for_fix")
         .eq("farm_id", farm_id)
         .eq("delivery_date", delivery_date)
         .limit(1);
@@ -442,7 +433,7 @@ export default function CatchingDesk() {
 
       const { data: files, error: e3 } = await supabase
         .from("plan_doc_files")
-        .select("id, file_name, file_url, note")
+        .select("id,file_name,file_url,note")
         .eq("album_id", album.id)
         .order("created_at", { ascending: true });
       if (e3) throw e3;
@@ -463,20 +454,14 @@ export default function CatchingDesk() {
     setDocPlanId(null);
   };
 
-  // อนุมัติ/ไม่ผ่าน “รายไฟล์”
   const approveFile = async (fileId) => {
     if (!docAlbum?.id) return;
     setDocBusy(true);
     setDocErr("");
     try {
-      const { error } = await supabase
-        .from("plan_doc_files")
-        .update({ note: "APPROVED" })
-        .eq("id", fileId);
+      const { error } = await supabase.from("plan_doc_files").update({ note: "APPROVED" }).eq("id", fileId);
       if (error) throw error;
-      setDocFiles((prev) =>
-        prev.map((f) => (f.id === fileId ? { ...f, note: "APPROVED" } : f))
-      );
+      setDocFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, note: "APPROVED" } : f)));
     } catch (e) {
       setDocErr(e.message || "อัปเดตสถานะไฟล์ไม่สำเร็จ");
     } finally {
@@ -493,14 +478,9 @@ export default function CatchingDesk() {
     setDocBusy(true);
     setDocErr("");
     try {
-      const { error } = await supabase
-        .from("plan_doc_files")
-        .update({ note: `REJECT:${text}` })
-        .eq("id", fileId);
+      const { error } = await supabase.from("plan_doc_files").update({ note: `REJECT:${text}` }).eq("id", fileId);
       if (error) throw error;
-      setDocFiles((prev) =>
-        prev.map((f) => (f.id === fileId ? { ...f, note: `REJECT:${text}` } : f))
-      );
+      setDocFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, note: `REJECT:${text}` } : f)));
     } catch (e) {
       setDocErr(e.message || "อัปเดตสถานะไฟล์ไม่สำเร็จ");
     } finally {
@@ -508,7 +488,6 @@ export default function CatchingDesk() {
     }
   };
 
-  /* logout */
   const doLogout = () => {
     try {
       localStorage.removeItem("user");
@@ -649,7 +628,6 @@ export default function CatchingDesk() {
                       บันทึกจำนวนคน
                     </button>
 
-                    {/* NEW: ปุ่มถึงฟาร์ม */}
                     <button
                       type="button"
                       disabled={busy || !!r.arrived_farm_at}
@@ -668,22 +646,33 @@ export default function CatchingDesk() {
                     >
                       เริ่มจับ
                     </button>
+
                     <button
                       type="button"
-                      disabled={busy || r.ah_doc_status !== "ok"}
-                      title={r.ah_doc_status !== "ok" ? "ต้องตรวจเอกสารให้เรียบร้อยก่อนปิดคิว" : ""}
-                      onClick={() => finishCatching(r)}
+                      disabled={busy || !!r.actual_end_at}
+                      title={r.actual_end_at ? "บันทึกแล้ว" : ""}
+                      onClick={() => endCatching(r)}
+                      className="rounded-md bg-fuchsia-600 px-3 py-2 text-white hover:bg-fuchsia-700 disabled:opacity-60"
+                    >
+                      จบจับจริง
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={busy || r.ah_doc_status !== "ok" || !r.actual_end_at}
+                      title={
+                        r.ah_doc_status !== "ok"
+                          ? "ต้องตรวจเอกสารให้เรียบร้อยก่อนปิดคิว"
+                          : !r.actual_end_at
+                          ? "ยังไม่มีเวลาจบจับจริง"
+                          : ""
+                      }
+                      onClick={() => closeQueue(r)}
                       className="rounded-md bg-rose-600 px-3 py-2 text-white hover:bg-rose-700 disabled:opacity-60"
                     >
-                      จบจับ / ปิดคิว
+                      ปิดคิว
                     </button>
                   </div>
-
-                  {actionMsgByPlan[plan_id] && (
-                    <div className="mt-2 text-xs text-gray-700">
-                      ผลการกด: <b>{actionMsgByPlan[plan_id]}</b>
-                    </div>
-                  )}
                 </div>
               </div>
             );
