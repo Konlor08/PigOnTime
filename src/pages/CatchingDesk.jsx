@@ -37,9 +37,8 @@ function Pill({ children, color = "slate" }) {
 
 const fmtDT = (iso) =>
   iso ? new Date(iso).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) : "-";
-const fmtD  = (iso) =>
-  iso ? new Date(iso).toLocaleDateString("th-TH") : "-";
-const fmtT  = (iso) =>
+const fmtD = (iso) => (iso ? new Date(iso).toLocaleDateString("th-TH") : "-");
+const fmtT = (iso) =>
   iso ? new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-";
 const diffLabelFromMs = (ms) => {
   const m = Math.round(Math.abs(ms) / 60000);
@@ -76,6 +75,7 @@ export default function CatchingDesk() {
   const [hasFarmAccess, setHasFarmAccess] = useState(null);
 
   const [teamByPlan, setTeamByPlan] = useState({});
+  const [pigByPlan, setPigByPlan] = useState({}); // จำนวนสุกรจับจริงต่อคิว
   const [noteByPlan, setNoteByPlan] = useState({});
   const [lastNoteByPlan, setLastNoteByPlan] = useState({});
 
@@ -109,13 +109,14 @@ export default function CatchingDesk() {
     [teamByPlan]
   );
 
-  /* โหลดคิว + เอกสาร + เวลาจาก catching_sessions */
+  /* โหลดคิว + เอกสาร + เวลาจาก catching_sessions + จำนวนสุกรแผน & จริง */
   const loadQueues = useCallback(async () => {
     setErr("");
     setBusy(true);
     try {
       if (!me?.id) throw new Error("ไม่พบผู้ใช้ปัจจุบัน");
 
+      // ฟาร์มที่ catcher คนนี้รับผิดชอบ
       const { data: myFarms, error: eF } = await supabase
         .from("catching_farm_relations")
         .select("farm_id,status")
@@ -131,6 +132,7 @@ export default function CatchingDesk() {
         return;
       }
 
+      // แผนคิวพื้นฐานจาก view v_plan_queue_simple (ไม่มี quantity)
       const { data, error } = await supabase
         .from("v_plan_queue_simple")
         .select(
@@ -209,12 +211,13 @@ export default function CatchingDesk() {
         return { ...r, ah_doc_status };
       });
 
-      // เวลาจาก catching_sessions (fallback)
       const planIds = merged.map((r) => r.plan_id);
+
       if (planIds.length) {
+        // เวลาจาก catching_sessions + จำนวนสุกรจริง
         const { data: sess } = await supabase
           .from("catching_sessions")
-          .select("plan_id, arrived_farm_at, arrived_at, start_at, end_at")
+          .select("plan_id, arrived_farm_at, arrived_at, start_at, end_at, pig_count")
           .in("plan_id", planIds);
 
         const best = (map, pid, ts) => {
@@ -226,17 +229,37 @@ export default function CatchingDesk() {
         const arrivedMap = new Map();
         const startMap = new Map();
         const endMap = new Map();
+        const pigMap = new Map();
+
         (sess || []).forEach((s) => {
           best(arrivedMap, s.plan_id, s.arrived_farm_at || s.arrived_at);
           best(startMap, s.plan_id, s.start_at);
           best(endMap, s.plan_id, s.end_at);
+          if (s.pig_count != null) pigMap.set(s.plan_id, s.pig_count);
         });
+
+        // จำนวนสุกรตามแผน จาก planning_plan_full_raw
+        const qtyMap = new Map();
+        try {
+          const { data: planRows, error: ePlanInfo } = await supabase
+            .from("planning_plan_full_raw")
+            .select("id, quantity")
+            .in("id", planIds);
+          if (ePlanInfo) throw ePlanInfo;
+          (planRows || []).forEach((p) => {
+            qtyMap.set(p.id, p.quantity);
+          });
+        } catch (e) {
+          console.log("loadQueues plan quantity error:", e.message);
+        }
 
         merged = merged.map((r) => ({
           ...r,
           arrived_farm_at: r.arrived_farm_at || arrivedMap.get(r.plan_id) || null,
           actual_start_at: r.actual_start_at || startMap.get(r.plan_id) || null,
           actual_end_at: r.actual_end_at || endMap.get(r.plan_id) || null,
+          actual_pig_count: pigMap.get(r.plan_id) ?? null,
+          plan_quantity: qtyMap.get(r.plan_id) ?? null,
         }));
       }
 
@@ -286,6 +309,10 @@ export default function CatchingDesk() {
 
   /* ถึงฟาร์ม */
   const arriveFarmNow = async (row) => {
+    if (!me?.id) {
+      toastErr("ไม่พบผู้ใช้ปัจจุบัน กรุณาเข้าสู่ระบบใหม่");
+      return;
+    }
     const plan_id = row.plan_id;
     const n = resolveTeamCount(row);
     setErr("");
@@ -313,6 +340,15 @@ export default function CatchingDesk() {
 
   /* เริ่มจับ */
   const startCatching = async (row) => {
+    if (!me?.id) {
+      toastErr("ไม่พบผู้ใช้ปัจจุบัน กรุณาเข้าสู่ระบบใหม่");
+      return;
+    }
+    if (!row.arrived_farm_at) {
+      toastErr("กรุณากด 'ถึงฟาร์ม' ก่อนเริ่มจับ");
+      return;
+    }
+
     const plan_id = row.plan_id;
     const n = resolveTeamCount(row);
     setErr("");
@@ -338,22 +374,45 @@ export default function CatchingDesk() {
 
   /* จบจับจริง */
   const endCatching = async (row) => {
+    if (!me?.id) {
+      toastErr("ไม่พบผู้ใช้ปัจจุบัน กรุณาเข้าสู่ระบบใหม่");
+      return;
+    }
     const plan_id = row.plan_id;
     const n = resolveTeamCount(row);
     const note = String(noteByPlan[plan_id] || "").trim() || null;
+
+    // จำนวนสุกรจับจริง
+    const rawPig = (pigByPlan[plan_id] ?? row.actual_pig_count ?? "").toString().trim();
+    const pig = rawPig ? Number(rawPig) : null;
+    if (rawPig && (!Number.isFinite(pig) || pig < 0)) {
+      toastErr("จำนวนสุกรจับจริงไม่ถูกต้อง");
+      return;
+    }
+
     setErr("");
     setBusy(true);
     try {
       const ts = new Date().toISOString();
-      const { error } = await supabase.from("catching_sessions").insert({
+      const payload = {
         plan_id,
         team_count: n,
         end_at: ts,
         created_by: me.id,
-      });
+      };
+      if (pig != null) payload.pig_count = pig;
+
+      const { error } = await supabase.from("catching_sessions").insert(payload);
       if (error) throw error;
+
       if (note) setLastNoteByPlan((p) => ({ ...p, [plan_id]: note }));
-      setRows((prev) => prev.map((x) => (x.plan_id === plan_id ? { ...x, actual_end_at: ts } : x)));
+      setRows((prev) =>
+        prev.map((x) =>
+          x.plan_id === plan_id
+            ? { ...x, actual_end_at: ts, actual_pig_count: pig != null ? pig : x.actual_pig_count ?? null }
+            : x
+        )
+      );
       toastOk("บันทึกเวลาจบจับแล้ว");
       loadQueues();
     } catch (e) {
@@ -365,6 +424,10 @@ export default function CatchingDesk() {
 
   /* ปิดคิว */
   const closeQueue = async (row) => {
+    if (!me?.id) {
+      toastErr("ไม่พบผู้ใช้ปัจจุบัน กรุณาเข้าสู่ระบบใหม่");
+      return;
+    }
     const plan_id = row.plan_id;
     const note = String(noteByPlan[plan_id] || "").trim() || null;
 
@@ -490,7 +553,7 @@ export default function CatchingDesk() {
 
   const doLogout = () => {
     try {
-      localStorage.removeItem("user");
+      localStorage.clear(); // เคลียร์ localStorage ทั้งหมด
     } catch {}
     navigate("/login", { replace: true });
   };
@@ -582,7 +645,7 @@ export default function CatchingDesk() {
                   </div>
                 </div>
 
-                {/* เวลาสำคัญ */}
+                {/* เวลาสำคัญ + ปริมาณสุกร */}
                 <div className="mt-2 text-sm text-gray-700">
                   โรงงาน: <b>{r.factory || "-"}</b>
                   <div className="text-xs text-gray-600 mt-1">
@@ -599,6 +662,11 @@ export default function CatchingDesk() {
                     {r.actual_start_at && r.catch_plan_ts ? `(${diffPlan(r.actual_start_at, r.catch_plan_ts)})` : ""}
                     {" · "}จบจับจริง: <b>{fmtDT(r.actual_end_at)}</b>{" "}
                     {r.actual_end_at && r.catch_plan_ts ? `(${diffPlan(r.actual_end_at, r.catch_plan_ts)})` : ""}
+                  </div>
+                  {/* ปริมาณสุกรตามแผน + จับจริง */}
+                  <div className="text-xs text-gray-700 mt-1">
+                    จำนวนสุกรตามแผน: <b>{r.plan_quantity != null ? r.plan_quantity : "-"}</b> ตัว · จำนวนสุกรจับจริง:{" "}
+                    <b>{r.actual_pig_count != null ? r.actual_pig_count : "-"}</b> ตัว
                   </div>
                 </div>
 
@@ -627,6 +695,20 @@ export default function CatchingDesk() {
                     >
                       บันทึกจำนวนคน
                     </button>
+
+                    {/* จำนวนสุกรจับจริง */}
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={pigByPlan[plan_id] ?? (r.actual_pig_count ?? "")}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^\d]/g, "");
+                        setPigByPlan((p) => ({ ...p, [plan_id]: v }));
+                      }}
+                      placeholder="จำนวนสุกรจับจริง"
+                      className="w-40 rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500"
+                    />
 
                     <button
                       type="button"

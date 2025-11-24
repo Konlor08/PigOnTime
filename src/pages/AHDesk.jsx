@@ -103,15 +103,15 @@ export default function AHDesk() {
   const end = plusDaysISO(7);
   const toastErr = (m) => setErr(m);
 
-  /* ✅ ถ้า user หลุด → กลับหน้า login */
+  /* ถ้า user หลุด → กลับหน้า login */
   useEffect(() => {
     if (!me?.id) {
       navigate("/login", { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // เช็คครั้งเดียวพอเมื่อเข้าเพจ
+  }, []);
 
-  /* โหลดโรงงานไว้ชื่อ/พิกัด */
+  /* โหลดโรงงาน */
   const loadFactories = useCallback(async () => {
     try {
       const { data, error } = await supabase.from("factories").select("id,site,name,lat,lng");
@@ -134,7 +134,6 @@ export default function AHDesk() {
     setErr("");
     setBusy(true);
     try {
-      /* ✅ กันเคสดึงข้อมูลโดยไม่มีผู้ใช้ */
       if (!me?.id) {
         setBusy(false);
         return;
@@ -161,7 +160,7 @@ export default function AHDesk() {
         .order("delivery_date", { ascending: true });
       if (e2) throw e2;
 
-      // คัดเฉพาะฟาร์มที่ดูแล (รองรับกรณี plan ที่ยังไม่มี farm_id)
+      // คัดเฉพาะฟาร์มที่ดูแล
       const isMyFarm = (p) => {
         if (p.farm_id && farmIds.has(p.farm_id)) return true;
         return myFarms.some(
@@ -233,7 +232,7 @@ export default function AHDesk() {
         /* optional */
       }
 
-      // รายงาน AH (ถ้ามี) — ล่าสุดต่อแผน
+      // รายงาน AH (ถ้ามี)
       const ahMap = {};
       try {
         const { data: ah } = await supabase
@@ -294,9 +293,12 @@ export default function AHDesk() {
     );
   }, [rows, query]);
 
-  /* ข้อมูลสำหรับ “แผนที่เดียว” */
+  /* ข้อมูลสำหรับแผนที่ */
   const overviewMarkers = useMemo(
-    () => filtered.map((p) => (latestPos[p.id] ? { plan: p, pos: latestPos[p.id] } : null)).filter(Boolean),
+    () =>
+      filtered
+        .map((p) => (latestPos[p.id] ? { plan: p, pos: latestPos[p.id] } : null))
+        .filter(Boolean),
     [filtered, latestPos]
   );
 
@@ -310,28 +312,18 @@ export default function AHDesk() {
     return pts;
   }, [overviewMarkers, filtered, factoryBySite]);
 
-  /* logout → กลับหน้า AHHome */
-  const doLogout = () => {
-    try {
-      localStorage.removeItem("user");
-    } catch {
-      /* noop */
-    }
-    navigate("/ah", { replace: true });
-  };
-
   return (
     <div className="min-h-screen bg-emerald-50">
-      {/* ===== HEADER: เรียบง่าย + ปุ่ม Logout (พาไป AHHome) ===== */}
+      {/* HEADER */}
       <header className="bg-emerald-600 text-white">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <h1 className="text-2xl font-semibold">สถานะการจัดส่งตามแผน Animal husbandry</h1>
-         <Link
-      to="/ah"
-      className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
-    >
-      กลับหน้า Animal husbandry
-    </Link>
+          <Link
+            to="/ah"
+            className="rounded-md bg-white/10 px-4 py-2 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+          >
+            กลับหน้า Animal husbandry
+          </Link>
         </div>
       </header>
 
@@ -344,7 +336,7 @@ export default function AHDesk() {
             </Pill>
             <Pill>วันนี้: {todayISO()}</Pill>
           </div>
-        <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -362,11 +354,18 @@ export default function AHDesk() {
           </div>
         </div>
 
-        {/* แผนที่เดียว — รวมรถทุกคันของฟาร์มที่ดูแล */}
+        {/* แผนที่รวม */}
         <div className="rounded-xl border border-emerald-200 bg-white p-2">
-          <div className="px-2 py-1 text-sm text-gray-600">แผนที่รวมรถขนส่ง (ฟาร์มที่ฉันดูแล)</div>
+          <div className="px-2 py-1 text-sm text-gray-600">
+            แผนที่รวมรถขนส่ง (ฟาร์มที่ฉันดูแล)
+          </div>
           <div className="h-[520px] rounded-lg overflow-hidden border border-emerald-200">
-            <MapContainer className="h-full w-full" center={[13.736717, 100.523186]} zoom={12} scrollWheelZoom>
+            <MapContainer
+              className="h-full w-full"
+              center={[13.736717, 100.523186]}
+              zoom={12}
+              scrollWheelZoom
+            >
               <TileLayer
                 attribution="&copy; OpenStreetMap contributors"
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -422,7 +421,8 @@ export default function AHDesk() {
                       <br />
                       เอกสาร: {docs ? `${docs} ไฟล์` : "-"}
                       <br />
-                      AH รายงาน: {ah ? `${clip(ah.condition, 40)} • อากาศ ${ah.weather || "-"}` : "-"}
+                      AH รายงาน:{" "}
+                      {ah ? `${clip(ah.condition, 40)} • อากาศ ${ah.weather || "-"}` : "-"}
                     </Popup>
                   </Marker>
                 );
@@ -465,7 +465,7 @@ export default function AHDesk() {
                     {r.delivery_date} • {r.plant}/{r.branch}/{r.house} — {r.farm_name || "-"} · รถ{" "}
                     {r.plate || "-"} · ไป {facName}
                   </div>
-                  <div className="space-x-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Pill
                       color={
                         status === "completed" || status === "arrived_factory"
@@ -487,6 +487,15 @@ export default function AHDesk() {
                     ) : (
                       <Pill>AH: -</Pill>
                     )}
+
+                    {/* ✅ ปุ่ม link ไปหน้า TransportTracking สำหรับคิวนี้ */}
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/transport-tracking?planId=${r.id}`)}
+                      className="inline-flex items-center rounded-md border border-emerald-300 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50"
+                    >
+                      ดูคิวขนส่ง
+                    </button>
                   </div>
                 </div>
               </div>

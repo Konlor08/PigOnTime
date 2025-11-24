@@ -1,17 +1,32 @@
 // src/pages/FactoryDesk.jsx
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "../supabaseClient";
+import supabase from "../supabaseClient";
 
 /* Leaflet */
-import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Tooltip,
+  useMap,
+} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-/* Fix Leaflet marker assets (Vite) + สร้าง icon (ประกาศครั้งเดียวพอ) */
-const ICON_RETINA = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png";
-const ICON_STD = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png";
-const ICON_SHADOW = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png";
+/* Fix Leaflet marker assets (Vite) + icon */
+const ICON_RETINA =
+  "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png";
+const ICON_STD =
+  "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png";
+const ICON_SHADOW =
+  "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png";
 delete L.Icon.Default.prototype._getIconUrl;
 
 const iconSmall = new L.Icon({
@@ -26,13 +41,28 @@ const iconSmall = new L.Icon({
 
 /* ---------- helpers ---------- */
 const fmtDate = (d) =>
-  new Date(d).toLocaleDateString("th-TH", { year: "numeric", month: "2-digit", day: "2-digit" });
-const fmtTime = (d) => (d ? new Date(d).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-");
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const plusDaysISO = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0,10); };
-const clip = (s, n = 40) => (s && s.length > n ? s.slice(0, n - 1) + "…" : (s || "-"));
+  new Date(d).toLocaleDateString("th-TH", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
 
-// km by Haversine
+const fmtTime = (d) =>
+  d
+    ? new Date(d).toLocaleTimeString("th-TH", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "-";
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
+const plusDaysISO = (n) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
 function haversineKm(a, b) {
   const toRad = (x) => (x * Math.PI) / 180;
   const R = 6371;
@@ -40,7 +70,9 @@ function haversineKm(a, b) {
   const dLng = toRad(b.lng - a.lng);
   const lat1 = toRad(a.lat);
   const lat2 = toRad(b.lat);
-  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
@@ -52,143 +84,170 @@ function Pill({ children, color = "slate" }) {
     slate: "bg-slate-100 text-slate-700 border-slate-200",
     blue: "bg-blue-100 text-blue-800 border-blue-200",
   };
-  return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${map[color]}`}>{children}</span>;
+  return (
+    <span
+      className={`inline-block rounded-full border px-2 py-0.5 text-xs ${map[color]}`}
+    >
+      {children}
+    </span>
+  );
 }
 
-/* Fit bounds of overview map */
 function FitBounds({ coords }) {
   const map = useMap();
   useEffect(() => {
     const pts = coords || [];
     if (pts.length === 0) return;
-    const ll = pts.map(p => [p.lat, p.lng]);
-    if (ll.length === 1) { map.setView(ll[0], 13); return; }
+    const ll = pts.map((p) => [p.lat, p.lng]);
+    if (ll.length === 1) {
+      map.setView(ll[0], 13);
+      return;
+    }
     map.fitBounds(L.latLngBounds(ll).pad(0.2));
   }, [coords, map]);
   return null;
 }
 
-/* ---------- main ---------- */
+/* ---------- main (Factory Desk) ---------- */
 export default function FactoryDesk() {
   const navigate = useNavigate();
 
   // session (อ่านจาก localStorage)
   let me = null;
-  try { me = JSON.parse(localStorage.getItem("user") || "null"); } catch { me = null; }
+  try {
+    me = JSON.parse(localStorage.getItem("user") || "null");
+  } catch {
+    me = null;
+  }
+  const meId = me?.id || null;
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
 
-  // 🔒 สิทธิ์ SITE ของ user
-  const [allowedSites, setAllowedSites] = useState([]);
+  // site ที่ user โรงงานมีสิทธิ์ดู
+  const [mySites, setMySites] = useState([]);
+  const [selectedSite, setSelectedSite] = useState("");
 
-  const [factories, setFactories] = useState([]);
-  const [factoryId, setFactoryId] = useState(""); // ให้ user เลือกโรงงาน
-  const [factoryCoord, setFactoryCoord] = useState(null);
-
-  const [rows, setRows] = useState([]);            // แผน (ของโรงงานนี้)
-  const [sessions, setSessions] = useState({});    // plan_id -> driver_trip_sessions
-  const [latestPos, setLatestPos] = useState({});  // plan_id -> {lat,lng,at,speed_kmh}
-
+  const [rows, setRows] = useState([]); // แผน
+  const [sessions, setSessions] = useState({}); // plan_id -> session ล่าสุด
+  const [latestPos, setLatestPos] = useState({}); // plan_id -> {lat,lng,at,speed_kmh}
   const [query, setQuery] = useState("");
 
-  // เอกสาร/รายงาน AH/จำนวนสุกร
-  const [docCountByPlan, setDocCountByPlan] = useState({}); // plan_id -> docs count
-  const [ahByPlan, setAhByPlan] = useState({});             // plan_id -> {condition, weather, at}
-  const [pigCountByPlan, setPigCountByPlan] = useState({}); // plan_id -> input count
+  const [factories, setFactories] = useState([]);
+  const [factoryBySite, setFactoryBySite] = useState({});
+
+  // ฟอร์มบันทึกผลโรงงาน: plan_id -> {arrivedAt: '2025-11-24T10:30', pigQty: '100'}
+  const [editValues, setEditValues] = useState({});
 
   const start = todayISO();
-  const end = plusDaysISO(1);
+  const end = plusDaysISO(7);
 
-  const toastOk = (m) => { setOk(m); setTimeout(()=>setOk(""), 3000); };
+  const toastOk = (m) => {
+    setOk(m);
+    setTimeout(() => setOk(""), 3000);
+  };
   const toastErr = (m) => setErr(m);
 
-  /* โหลดสิทธิ์ SITE ของ user */
-  const loadUserSites = useCallback(async () => {
-    if (!me?.id) return setAllowedSites([]);
-    try {
-      const { data, error } = await supabase
-        .from("user_site_relations")
-        .select("site")
-        .eq("user_id", me.id)
-        .eq("status", "active");
-      if (error) throw error;
-      setAllowedSites(Array.from(new Set((data || []).map(r => r.site).filter(Boolean))));
-    } catch (e) {
-      setAllowedSites([]);
-      toastErr(e.message || "โหลดสิทธิ์ SITE ไม่สำเร็จ");
+  /* โหลด site ที่ user โรงงานมีสิทธิ์ */
+  const loadMySites = useCallback(async () => {
+    if (!meId) {
+      setMySites([]);
+      return;
     }
-  }, [me?.id]);
+    try {
+      // ปรับชื่อ table/column ให้ตรง DB จริง ถ้าใช้ชื่ออื่น
+      const { data, error } = await supabase
+        .from("factory_site_relations")
+        .select("site")
+        .eq("user_id", meId)
+        .eq("status", "active");
 
-  useEffect(() => { loadUserSites(); }, [loadUserSites]);
+      if (error) throw error;
+      setMySites((data || []).map((r) => r.site).filter(Boolean));
+    } catch (e) {
+      console.log("loadMySites:", e.message);
+      setMySites([]);
+    }
+  }, [meId]);
 
-  /* โหลดรายการโรงงาน (จำกัดเฉพาะ SITE ที่ user มีสิทธิ์) */
+  /* โหลดโรงงานทั้งหมด (ไว้ map ชื่อ/พิกัด + dropdown) */
   const loadFactories = useCallback(async () => {
     try {
-      // ถ้าไม่มีสิทธิ์ site เลย -> ว่าง
-      if (!allowedSites.length) {
-        setFactories([]);
-        setFactoryId("");
-        setFactoryCoord(null);
-        return;
-      }
       const { data, error } = await supabase
         .from("factories")
-        .select("id, site, name, lat, lng")
-        .in("site", allowedSites)
-        .order("name");
+        .select("id, site, name, lat, lng");
       if (error) throw error;
-
       setFactories(data || []);
-
-      // เลือกอันแรกถ้า factoryId ไม่อยู่ในสิทธิ์
-      const exists = (data || []).some(f => f.id === factoryId);
-      const first = data && data.length ? data[0] : null;
-      if (!exists) {
-        setFactoryId(first ? first.id : "");
-        setFactoryCoord(first?.lat && first?.lng ? { lat: first.lat, lng: first.lng } : null);
-      } else {
-        const f = (data || []).find(x => x.id === factoryId);
-        setFactoryCoord(f?.lat && f?.lng ? { lat: f.lat, lng: f.lng } : null);
-      }
+      const map = Object.fromEntries(
+        (data || []).map((f) => [
+          f.site,
+          { name: f.name || f.site, lat: f.lat, lng: f.lng },
+        ])
+      );
+      setFactoryBySite(map);
     } catch (e) {
-      toastErr(e.message || "โหลดรายชื่อโรงงานไม่สำเร็จ");
+      console.log("loadFactories:", e.message);
     }
-  }, [allowedSites, factoryId]);
+  }, []);
 
-  useEffect(() => { loadFactories(); }, [loadFactories]);
+  useEffect(() => {
+    loadMySites();
+  }, [loadMySites]);
 
-  /* โหลดแผน/สถานะ/พิกัดล่าสุด/เอกสาร/AH ของโรงงานที่เลือก */
+  useEffect(() => {
+    loadFactories();
+  }, [loadFactories]);
+
+  const sites = useMemo(() => {
+    const allSites = Array.from(
+      new Set((factories || []).map((f) => f.site).filter(Boolean))
+    );
+    if (!mySites.length) return allSites;
+    return allSites.filter((s) => mySites.includes(s));
+  }, [factories, mySites]);
+
+  /* โหลดคิว / สถานะ / พิกัด ล่าสุด */
   const loadQueues = useCallback(async () => {
-    if (!factoryId) return;
-    setErr(""); setBusy(true);
+    setErr("");
+    setBusy(true);
     try {
-      const f = factories.find(x => x.id === factoryId);
-      setFactoryCoord(f?.lat && f?.lng ? { lat: f.lat, lng: f.lng } : null);
+      if (!meId) throw new Error("ไม่พบผู้ใช้ปัจจุบัน");
 
-      // แผนของโรงงานนี้ (วันนี้ → พรุ่งนี้) อ้างอิง site ของโรงงานในตารางแผน
-      const { data: plans, error: e1 } = await supabase
+      let q = supabase
         .from("planning_plan_full")
-        .select("id, delivery_date, delivery_time, plant, branch, house, farm_name, plate, factory, quantity")
-        .eq("factory", f?.site || "")
+        .select(
+          "id, delivery_date, delivery_time, plant, branch, house, farm_id, farm_name, plate, factory, quantity, timetrucktofarm"
+        )
         .gte("delivery_date", start)
         .lte("delivery_date", end)
-        .order("delivery_date");
-      if (e1) throw e1;
+        .order("delivery_date", { ascending: true });
 
-      const planIds = (plans || []).map(p => p.id);
+      // กรองตาม site ที่ user โรงงานมีสิทธิ์
+      if (mySites.length) q = q.in("factory", mySites);
+      // และตาม dropdown ถ้าเลือกเพิ่ม
+      if (selectedSite) q = q.eq("factory", selectedSite);
+
+      const { data: plans, error: ePlans } = await q;
+      if (ePlans) throw ePlans;
+
+      const planIds = (plans || []).map((p) => p.id);
 
       // session ล่าสุดของแต่ละแผน
       let sessMap = {};
       if (planIds.length) {
         const { data: sess, error: e2 } = await supabase
           .from("driver_trip_sessions")
-          .select("id,plan_id,driver_id,truck_id,arrived_farm_at,left_farm_at,arrived_factory_at,completed,created_at")
+          .select(
+            "id,plan_id,driver_id,truck_id,arrived_farm_at,left_farm_at,arrived_factory_at,completed,pig_qty,created_at"
+          )
           .in("plan_id", planIds)
           .order("created_at", { ascending: false });
+
         if (e2) throw e2;
-        (sess || []).forEach(s => { if (!sessMap[s.plan_id]) sessMap[s.plan_id] = s; });
+        (sess || []).forEach((s) => {
+          if (!sessMap[s.plan_id]) sessMap[s.plan_id] = s;
+        });
       }
 
       // พิกัดล่าสุดของแต่ละ session
@@ -202,95 +261,55 @@ export default function FactoryDesk() {
           .order("recorded_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-        if (pos) latestMap[s.plan_id] = { lat: pos.lat, lng: pos.lng, at: pos.recorded_at, speed_kmh: pos.speed_kmh ?? null };
+        if (pos) {
+          latestMap[s.plan_id] = {
+            lat: pos.lat,
+            lng: pos.lng,
+            at: pos.recorded_at,
+            speed_kmh: pos.speed_kmh ?? null,
+          };
+        }
       }
 
-      // เอกสารของแต่ละแผน
-      const docCount = {};
-      try {
-        const { data: albums } = await supabase
-          .from("plan_doc_albums")
-          .select("id, plan_id")
-          .in("plan_id", planIds);
-        const albumIds = (albums || []).map(a => a.id);
-        if (albumIds.length) {
-          const { data: files } = await supabase
-            .from("plan_doc_files")
-            .select("id, album_id")
-            .in("album_id", albumIds);
-          const byAlbum = {};
-          (files || []).forEach(f => { byAlbum[f.album_id] = (byAlbum[f.album_id] || 0) + 1; });
-          (albums || []).forEach(a => { docCount[a.plan_id] = (docCount[a.plan_id] || 0) + (byAlbum[a.id] || 0); });
-        }
-      } catch {}
-
-      // รายงาน AH (ถ้ามี)
-      const ahMap = {};
-      try {
-        const { data: ah } = await supabase
-          .from("ah_farm_reports")
-          .select("plan_id, farm_condition, weather, created_at")
-          .in("plan_id", planIds)
-          .order("created_at", { ascending: false });
-        (ah || []).forEach(r => {
-          if (!ahMap[r.plan_id]) {
-            ahMap[r.plan_id] = { condition: r.farm_condition || null, weather: r.weather || null, at: r.created_at };
-          }
-        });
-      } catch {}
+      // เตรียมค่า default ให้ฟอร์ม (ถ้ามีค่าเก่าอยู่แล้ว)
+      const newEditValues = {};
+      (plans || []).forEach((p) => {
+        const s = sessMap[p.id];
+        if (!s) return;
+        newEditValues[p.id] = {
+          arrivedAt: s.arrived_factory_at
+            ? s.arrived_factory_at.slice(0, 16) // yyyy-MM-ddTHH:mm
+            : "",
+          pigQty:
+            typeof s.pig_qty === "number" && !Number.isNaN(s.pig_qty)
+              ? String(s.pig_qty)
+              : "",
+        };
+      });
 
       setRows(plans || []);
       setSessions(sessMap);
       setLatestPos(latestMap);
-      setDocCountByPlan(docCount);
-      setAhByPlan(ahMap);
+      setEditValues((prev) => ({ ...prev, ...newEditValues }));
+      toastOk("โหลดข้อมูลคิวโรงงานแล้ว");
     } catch (e) {
       toastErr(e.message || "โหลดข้อมูลไม่สำเร็จ");
     } finally {
       setBusy(false);
     }
-  }, [factoryId, factories, start, end]);
+  }, [meId, mySites, selectedSite, start, end]);
 
-  useEffect(() => { loadQueues(); }, [loadQueues]);
+  useEffect(() => {
+    loadQueues();
+  }, [loadQueues]);
 
-  /* ยืนยันรับสุกรที่โรงงาน → ปิดงานเมื่อ Driver ถึงโรงงานแล้ว */
-  const confirmReceipt = async (plan) => {
-    const count = Number(pigCountByPlan[plan.id] ?? 0);
-    if (isNaN(count) || count < 0) return toastErr("กรุณาระบุจำนวนสุกรให้ถูกต้อง");
-    const sess = sessions[plan.id];
-    if (!sess?.arrived_factory_at) return toastErr("รถยังไม่กดถึงโรงงาน (ฝั่ง Driver)");
-
-    setBusy(true); setErr("");
-    try {
-      const f = factories.find(x => x.site === plan.factory) || factories.find(x => x.id === factoryId);
-      const factory_id = f?.id ?? null;
-
-      const { error } = await supabase
-        .from("factory_receipts")
-        .upsert({
-          plan_id: plan.id,
-          factory_id,
-          confirmed_by: me?.id || null,
-          pig_count: count,
-          received_at: new Date().toISOString(),
-        }, { onConflict: "plan_id" });
-      if (error) throw error;
-
-      toastOk("ยืนยันรับสุกรสำเร็จ (ปิดงาน)");
-      loadQueues();
-    } catch (e) {
-      toastErr(e.message || "ยืนยันไม่สำเร็จ");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /* ETA จากพิกัดล่าสุด → โรงงาน */
-  function calcEtaMin(planId) {
-    if (!factoryCoord || !latestPos[planId]) return null;
-    const here = latestPos[planId];
-    const distKm = haversineKm(here, factoryCoord);
-    const speed = here.speed_kmh && here.speed_kmh > 3 ? here.speed_kmh : 40;
+  /* ETA: จากตำแหน่งล่าสุด → โรงงาน */
+  function calcEtaMin(plan) {
+    const pos = latestPos[plan.id];
+    const fac = factoryBySite[plan.factory];
+    if (!pos || !fac?.lat || !fac?.lng) return null;
+    const distKm = haversineKm(pos, { lat: fac.lat, lng: fac.lng });
+    const speed = pos.speed_kmh && pos.speed_kmh > 3 ? pos.speed_kmh : 40;
     const min = Math.round((distKm / speed) * 60);
     return Math.max(1, min);
   }
@@ -299,39 +318,127 @@ export default function FactoryDesk() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter(r =>
-      [r.delivery_date, r.farm_name, r.plant, r.branch, r.house, r.plate]
-        .filter(Boolean).join(" ").toLowerCase().includes(q)
+    return rows.filter((r) =>
+      [
+        r.delivery_date,
+        r.farm_name,
+        r.plant,
+        r.branch,
+        r.house,
+        r.plate,
+        r.factory,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
     );
   }, [rows, query]);
 
-  /* ---------- สร้างข้อมูลสำหรับ “แผนที่เดียว” ---------- */
+  /* สำหรับ map รวม */
   const overviewMarkers = useMemo(() => {
     return filtered
-      .map(p => (latestPos[p.id] ? { plan: p, pos: latestPos[p.id] } : null))
+      .map((p) =>
+        latestPos[p.id] ? { plan: p, pos: latestPos[p.id] } : null
+      )
       .filter(Boolean);
   }, [filtered, latestPos]);
 
   const overviewCoords = useMemo(() => {
     const pts = [];
-    if (factoryCoord) pts.push(factoryCoord);
-    overviewMarkers.forEach(m => pts.push({ lat: m.pos.lat, lng: m.pos.lng }));
+    overviewMarkers.forEach((m) =>
+      pts.push({ lat: m.pos.lat, lng: m.pos.lng })
+    );
+    filtered.forEach((p) => {
+      const fac = factoryBySite[p.factory];
+      if (fac?.lat && fac?.lng)
+        pts.push({ lat: fac.lat, lng: fac.lng });
+    });
     return pts;
-  }, [overviewMarkers, factoryCoord]);
+  }, [overviewMarkers, filtered, factoryBySite]);
 
   /* logout */
-  const doLogout = () => { try { localStorage.removeItem("user"); } catch {} navigate("/login", { replace: true }); };
+  const doLogout = () => {
+    try {
+      localStorage.removeItem("user");
+    } catch {
+      /* noop */
+    }
+    navigate("/login", { replace: true });
+  };
+
+  /* จัดการแก้ฟอร์ม */
+  const handleEditChange = (planId, field, value) => {
+    setEditValues((prev) => ({
+      ...prev,
+      [planId]: { ...(prev[planId] || {}), [field]: value },
+    }));
+  };
+
+  /* บันทึกผลโรงงาน: เวลา + จำนวนสุกร + ปิดคิว */
+  const handleSaveFactoryResult = async (planId) => {
+    const sess = sessions[planId];
+    if (!sess) {
+      toastErr("ไม่พบ session ของคิวนี้");
+      return;
+    }
+    const v = editValues[planId] || {};
+    const arrivedAtStr = v.arrivedAt || "";
+    const pigQtyStr = v.pigQty || "";
+
+    const pigQty = Number(pigQtyStr);
+    if (!arrivedAtStr || !pigQtyStr || Number.isNaN(pigQty)) {
+      toastErr("กรุณากรอกเวลาและจำนวนสุกรให้ครบถ้วน");
+      return;
+    }
+
+    const arrivedAtIso = new Date(arrivedAtStr).toISOString();
+
+    setBusy(true);
+    try {
+      // ปรับชื่อคอลัมน์ถ้า DB จริงใช้ชื่ออื่น
+      const { error } = await supabase
+        .from("driver_trip_sessions")
+        .update({
+          arrived_factory_at: arrivedAtIso,
+          completed: true, // ปิดคิว
+          pig_qty: pigQty,
+        })
+        .eq("id", sess.id);
+
+      if (error) throw error;
+
+      // อัปเดต state ฝั่งหน้าเว็บ
+      setSessions((prev) => ({
+        ...prev,
+        [planId]: {
+          ...(prev[planId] || {}),
+          arrived_factory_at: arrivedAtIso,
+          completed: true,
+          pig_qty: pigQty,
+        },
+      }));
+
+      toastOk("บันทึกข้อมูลโรงงานเรียบร้อยแล้ว");
+    } catch (e) {
+      toastErr(e.message || "บันทึกข้อมูลไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-amber-50">
+    <div className="min-h-screen bg-sky-50">
       {/* Header */}
-      <header className="bg-amber-600 text-white">
+      <header className="bg-sky-700 text-white">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Factory Desk</h1>
+          <h1 className="text-2xl font-semibold">
+            Factory Desk — รับสุกรเข้าโรงงาน
+          </h1>
           <button
             type="button"
             onClick={doLogout}
-            className="rounded-md bg-amber-300 text-amber-950 px-4 py-2 font-semibold hover:bg-amber-400 active:bg-amber-500"
+            className="rounded-md bg-sky-200 text-sky-900 px-4 py-2 font-semibold hover:bg-sky-300 active:bg-sky-400"
           >
             Logout
           </button>
@@ -341,41 +448,47 @@ export default function FactoryDesk() {
       <main className="mx-auto max-w-6xl px-4 py-6 space-y-4">
         {/* Alerts */}
         {err && (
-          <div className="rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2 flex items-center justify-between">
+          <div className="rounded-lg border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 flex items-center justify-between">
             <span>{err}</span>
-            <button className="text-red-700" onClick={() => setErr("")}>×</button>
+            <button
+              className="text-rose-700"
+              onClick={() => setErr("")}
+            >
+              ×
+            </button>
           </div>
         )}
         {ok && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 px-3 py-2">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-2">
             {ok}
           </div>
         )}
 
         {/* Controls */}
-        <div className="rounded-xl border border-amber-200 bg-white p-3 space-y-3">
-          <div className="flex flex-col md:flex-row gap-3 md:items-end md:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-80">
-                <div className="text-sm text-gray-600 mb-1">เลือกโรงงาน</div>
+        <div className="rounded-xl border border-sky-200 bg-white p-3 space-y-3">
+          <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+            <div className="flex flex-wrap items-end gap-3">
+              <Pill color="green">
+                ช่วง: {fmtDate(start)} → {fmtDate(end)}
+              </Pill>
+
+              {/* กรองตาม Site ที่มีสิทธิ์ */}
+              <div className="w-64">
+                <div className="text-sm text-gray-600 mb-1">
+                  กรองตาม Site (โรงงานของคุณ)
+                </div>
                 <select
-                  value={factoryId}
-                  onChange={(e) => {
-                    setFactoryId(e.target.value);
-                    const f = factories.find(x => x.id === e.target.value);
-                    setFactoryCoord(f?.lat && f?.lng ? { lat: f.lat, lng: f.lng } : null);
-                  }}
-                  className="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500"
+                  value={selectedSite}
+                  onChange={(e) => setSelectedSite(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500"
                 >
-                  {factories.map(f => (
-                    <option key={f.id} value={f.id}>
-                      {f.name || f.site}
+                  <option value="">— ทุก Site ที่มีสิทธิ์ —</option>
+                  {sites.map((s) => (
+                    <option key={s} value={s}>
+                      {factoryBySite[s]?.name || s}
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="text-sm">
-                <Pill color="amber">ช่วง: {fmtDate(start)} → {fmtDate(end)}</Pill>
               </div>
             </div>
 
@@ -383,13 +496,13 @@ export default function FactoryDesk() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="ค้นหา (วันที่/ฟาร์ม/ทะเบียน)"
-                className="rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500 w-72"
+                placeholder="ค้นหา (วันที่/ฟาร์ม/ทะเบียน/โรงงาน)"
+                className="rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500 w-72"
               />
               <button
                 type="button"
                 onClick={loadQueues}
-                className="rounded-md bg-amber-600 px-4 py-2 text-white hover:bg-amber-700 disabled:opacity-60"
+                className="rounded-md bg-sky-600 px-4 py-2 text-white hover:bg-sky-700 disabled:opacity-60"
                 disabled={busy}
               >
                 รีเฟรช
@@ -398,50 +511,92 @@ export default function FactoryDesk() {
           </div>
         </div>
 
-        {/* ✅ แผนที่เดียว แสดงทุกคันที่กำลังมาส่งโรงงาน */}
-        <div className="rounded-xl border border-amber-200 bg-white p-2">
-          <div className="px-2 py-1 text-sm text-gray-600">แผนที่รวมรถที่กำลังมาส่งโรงงาน</div>
-          <div className="h-[520px] rounded-lg overflow-hidden border border-amber-200">
-            <MapContainer className="h-full w-full" center={[13.736717, 100.523186]} zoom={12} scrollWheelZoom>
-              <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        {/* แผนที่รวม */}
+        <div className="rounded-xl border border-sky-200 bg-white p-2">
+          <div className="px-2 py-1 text-sm text-gray-600">
+            แผนที่รวมรถขนส่ง (เฉพาะ Site โรงงานที่คุณรับผิดชอบ)
+          </div>
+          <div className="h-[520px] rounded-lg overflow-hidden border border-sky-200">
+            <MapContainer
+              className="h-full w-full"
+              center={[13.736717, 100.523186]}
+              zoom={12}
+              scrollWheelZoom
+            >
+              <TileLayer
+                attribution="&copy; OpenStreetMap contributors"
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
               <FitBounds coords={overviewCoords} />
 
               {/* ตำแหน่งโรงงาน */}
-              {factoryCoord && (
-                <Marker position={[factoryCoord.lat, factoryCoord.lng]} icon={iconSmall}>
-                  <Tooltip permanent direction="top" offset={[0, -10]}>
-                    โรงงาน
-                  </Tooltip>
-                  <Popup>โรงงาน</Popup>
-                </Marker>
-              )}
+              {filtered.map((p) => {
+                const fac = factoryBySite[p.factory];
+                if (!fac?.lat || !fac?.lng) return null;
+                return (
+                  <Marker
+                    key={`fac-${p.id}`}
+                    position={[fac.lat, fac.lng]}
+                    icon={iconSmall}
+                  >
+                    <Tooltip
+                      permanent
+                      direction="top"
+                      offset={[0, -10]}
+                    >
+                      โรงงาน: {fac.name}
+                    </Tooltip>
+                    <Popup>โรงงานปลายทาง: {fac.name}</Popup>
+                  </Marker>
+                );
+              })}
 
-              {/* รถทุกคัน + info */}
+              {/* รถทุกคัน */}
               {overviewMarkers.map(({ plan, pos }) => {
                 const s = sessions[plan.id];
-                const status =
-                  s?.completed ? "completed"
-                  : s?.arrived_factory_at ? "arrived_factory"
-                  : s?.left_farm_at ? "left_farm"
-                  : s?.arrived_farm_at ? "at_farm"
+                const status = s?.completed
+                  ? "completed"
+                  : s?.arrived_factory_at
+                  ? "arrived_factory"
+                  : s?.left_farm_at
+                  ? "left_farm"
+                  : s?.arrived_farm_at
+                  ? "at_farm"
                   : "pending";
 
-                const docs = docCountByPlan[plan.id] || 0;
-                const ah = ahByPlan[plan.id];
-                const etaMin = calcEtaMin(plan.id);
+                const facName =
+                  factoryBySite[plan.factory]?.name ||
+                  plan.factory ||
+                  "-";
+                const etaMin = calcEtaMin(plan);
 
                 return (
-                  <Marker key={plan.id} position={[pos.lat, pos.lng]} icon={iconSmall}>
-                    <Tooltip permanent direction="top" offset={[0, -10]}>
-                      รถ {plan.plate || "-"} • {status}{etaMin ? ` • ETA ${etaMin}น.` : ""}
+                  <Marker
+                    key={plan.id}
+                    position={[pos.lat, pos.lng]}
+                    icon={iconSmall}
+                  >
+                    <Tooltip
+                      permanent
+                      direction="top"
+                      offset={[0, -10]}
+                    >
+                      รถ {plan.plate || "-"} • {status} • ไป{" "}
+                      {facName}
+                      {etaMin ? ` • ETA ${etaMin}น.` : ""}
                     </Tooltip>
                     <Popup>
-                      <div className="font-medium mb-1">{plan.farm_name || "-"}</div>
-                      ล่าสุด: {pos.lat.toFixed(6)}, {pos.lng.toFixed(6)}<br />
-                      เวลา: {fmtTime(pos.at)}<br />
-                      ทะเบียน: {plan.plate || "-"}<br />
-                      เอกสาร: {docs ? `${docs} ไฟล์` : "-"}<br />
-                      AH: {ah ? `${clip(ah.condition, 40)} • อากาศ ${ah.weather || "-"}` : "-"}
+                      <div className="font-medium mb-1">
+                        {plan.farm_name || "-"}
+                      </div>
+                      ล่าสุด: {pos.lat.toFixed(6)},{" "}
+                      {pos.lng.toFixed(6)}
+                      <br />
+                      เวลา: {fmtTime(pos.at)}
+                      <br />
+                      ทะเบียน: {plan.plate || "-"}
+                      <br />
+                      ปลายทาง: {facName}
                     </Popup>
                   </Marker>
                 );
@@ -450,93 +605,166 @@ export default function FactoryDesk() {
           </div>
         </div>
 
-        {/* ตารางคิว */}
+        {/* ตารางคิว + ฟอร์มบันทึกผลโรงงาน */}
         <div className="space-y-3">
-          {busy && <div className="text-gray-500">กำลังโหลด…</div>}
+          {busy && (
+            <div className="text-gray-500">กำลังโหลด…</div>
+          )}
           {!busy && filtered.length === 0 && (
-            <div className="rounded-lg border border-amber-200 bg-white p-4 text-gray-600">
-              ไม่พบคิวของโรงงานนี้ในช่วงเวลา
+            <div className="rounded-lg border border-sky-200 bg-white p-4 text-gray-600">
+              ไม่พบคิวในช่วงเวลานี้
             </div>
           )}
 
           {filtered.map((r) => {
             const sess = sessions[r.id];
             const last = latestPos[r.id];
-            const etaMin = calcEtaMin(r.id);
-            const isArrived = !!sess?.arrived_factory_at;
+            const etaMin = calcEtaMin(r);
+            const facName =
+              factoryBySite[r.factory]?.name ||
+              r.factory ||
+              "-";
 
-            const docs = docCountByPlan[r.id] || 0;
-            const ah = ahByPlan[r.id];
-
-            const status =
-              sess?.completed ? "completed"
-              : isArrived ? "arrived_factory"
-              : sess?.left_farm_at ? "left_farm"
-              : sess?.arrived_farm_at ? "at_farm"
+            const status = sess?.completed
+              ? "completed"
+              : sess?.arrived_factory_at
+              ? "arrived_factory"
+              : sess?.left_farm_at
+              ? "left_farm"
+              : sess?.arrived_farm_at
+              ? "at_farm"
               : "pending";
 
+            const edit = editValues[r.id] || {
+              arrivedAt: "",
+              pigQty: "",
+            };
+
             return (
-              <div key={r.id} className="rounded-xl border border-amber-200 bg-white p-4">
+              <div
+                key={r.id}
+                className="rounded-xl border border-sky-200 bg-white p-4"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-semibold">
-                    {r.delivery_date} • {r.plant}/{r.branch}/{r.house} — {r.farm_name || "-"} · รถ {r.plate || "-"}
+                    {r.delivery_date} • {r.plant}/{r.branch}/
+                    {r.house} — {r.farm_name || "-"} · รถ{" "}
+                    {r.plate || "-"} · ไป {facName}
                   </div>
-                  <div className="space-x-2">
-                    <Pill color={
-                      status === "completed" || status === "arrived_factory" ? "green"
-                      : status === "left_farm" ? "blue"
-                      : status === "at_farm" ? "amber"
-                      : "slate"
-                    }>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Pill
+                      color={
+                        status === "completed" ||
+                        status === "arrived_factory"
+                          ? "green"
+                          : status === "left_farm"
+                          ? "blue"
+                          : status === "at_farm"
+                          ? "amber"
+                          : "slate"
+                      }
+                    >
                       {status}
                     </Pill>
-                    {etaMin ? <Pill color="blue">ETA ~ {etaMin} นาที</Pill> : null}
-                    {last ? <Pill color="slate">{fmtTime(last.at)}</Pill> : null}
-                    <Pill color={docs ? "green" : "slate"}>Docs: {docs || "-"}</Pill>
-                    {ah ? <Pill color="amber">AH: {clip(ah.condition, 20)} / {ah.weather || "-"}</Pill> : <Pill>AH: -</Pill>}
+                    {etaMin ? (
+                      <Pill color="blue">
+                        ETA ~ {etaMin} นาที
+                      </Pill>
+                    ) : null}
+                    {last ? (
+                      <Pill color="slate">
+                        {fmtTime(last.at)}
+                      </Pill>
+                    ) : null}
                   </div>
                 </div>
 
-                {/* แผงยืนยันรับสุกร */}
-                <div className="mt-3 rounded-lg border border-amber-200 p-3">
-                  <div className="text-sm text-gray-600 mb-1">ยืนยันจำนวนสุกร (กดได้เมื่อรถกดถึงโรงงาน)</div>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="number"
-                      min={0}
-                      value={pigCountByPlan[r.id] ?? ""}
-                      onChange={(e) => setPigCountByPlan((old) => ({ ...old, [r.id]: e.target.value }))}
-                      placeholder="จำนวนสุกร"
-                      className="w-40 rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => confirmReceipt(r)}
-                      className="rounded-md px-4 py-2 text-white disabled:opacity-60"
-                      disabled={busy || !isArrived}
-                      style={{ backgroundColor: isArrived ? "#059669" : "#9CA3AF" }}
-                    >
-                      ยืนยันรับ (โรงงาน)
-                    </button>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    * “ขนส่งเสร็จสิ้น” เมื่อ Driver กดถึงโรงงาน และโรงงานยืนยันจำนวนสุกรแล้ว
-                  </div>
-                </div>
-
-                {/* times */}
+                {/* เวลาอีเวนต์จาก driver */}
                 <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                  <div className="rounded border border-amber-200 p-2">
-                    <div className="text-gray-500">ถึงฟาร์ม (driver)</div>
-                    <div className="font-medium">{fmtTime(sess?.arrived_farm_at)}</div>
+                  <div className="rounded border border-sky-200 p-2">
+                    <div className="text-gray-500">
+                      ถึงฟาร์ม (driver)
+                    </div>
+                    <div className="font-medium">
+                      {fmtTime(sess?.arrived_farm_at)}
+                    </div>
                   </div>
-                  <div className="rounded border border-amber-200 p-2">
-                    <div className="text-gray-500">ออกจากฟาร์ม (driver)</div>
-                    <div className="font-medium">{fmtTime(sess?.left_farm_at)}</div>
+                  <div className="rounded border border-sky-200 p-2">
+                    <div className="text-gray-500">
+                      ออกจากฟาร์ม (driver)
+                    </div>
+                    <div className="font-medium">
+                      {fmtTime(sess?.left_farm_at)}
+                    </div>
                   </div>
-                  <div className="rounded border border-amber-200 p-2">
-                    <div className="text-gray-500">ถึงโรงงาน (driver)</div>
-                    <div className="font-medium">{fmtTime(sess?.arrived_factory_at)}</div>
+                  <div className="rounded border border-sky-200 p-2">
+                    <div className="text-gray-500">
+                      ถึงโรงงาน (driver)
+                    </div>
+                    <div className="font-medium">
+                      {fmtTime(sess?.arrived_factory_at)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ฟอร์มบันทึกผลโรงงาน */}
+                <div className="mt-4 border-t border-dashed border-sky-100 pt-3 text-sm">
+                  <div className="font-semibold mb-2">
+                    บันทึกผลรับสุกรเข้าโรงงาน (Factory)
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">
+                        เวลา “รถถึงโรงงานจริง” (Factory)
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={edit.arrivedAt}
+                        onChange={(e) =>
+                          handleEditChange(
+                            r.id,
+                            "arrivedAt",
+                            e.target.value
+                          )
+                        }
+                        className="w-full rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">
+                        จำนวนสุกรที่รับจริง (ตัว)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={edit.pigQty}
+                        onChange={(e) =>
+                          handleEditChange(
+                            r.id,
+                            "pigQty",
+                            e.target.value
+                          )
+                        }
+                        className="w-full rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSaveFactoryResult(r.id)
+                        }
+                        className="rounded-md bg-sky-600 text-white px-4 py-2 text-sm font-semibold hover:bg-sky-700 disabled:opacity-60"
+                        disabled={busy}
+                      >
+                        บันทึก & ปิดคิว
+                      </button>
+                      {sess?.completed && (
+                        <span className="self-center text-xs text-emerald-700">
+                          คิวนี้ถูกปิดแล้ว
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -547,3 +775,4 @@ export default function FactoryDesk() {
     </div>
   );
 }
+

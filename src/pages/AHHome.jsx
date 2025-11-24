@@ -47,7 +47,9 @@ export default function AHHome() {
               className="h-8 w-8 rounded-sm select-none"
               draggable={false}
             />
-            <h1 className="text-2xl font-semibold">Animalhusbandry Dashboard</h1>
+            <h1 className="text-2xl font-semibold">
+              Animalhusbandry Dashboard
+            </h1>
           </div>
 
           <div className="flex items-center gap-3">
@@ -134,11 +136,11 @@ export default function AHHome() {
             desc="ส่งรายงานปัญหา/อุปสรรค และรูป/ไฟล์ประกอบ"
           />
 
-          {/* ที่อยู่รถระหว่างเดินทาง → ลิงก์ไป /ah/status */}
+          {/* สถานะขนส่งเฉพาะที่เกี่ยวข้อง → ไปหน้า AHTransportTracking */}
           <CardLink
-            to="/ah/status"
-            title="ที่อยู่รถระหว่างเดินทาง"
-            desc="เช็คตำแหน่งรถขณะมุ่งหน้าโรงงานตามแผน"
+            to="/ah/transport"
+            title="สถานะการขนส่ง (ฟาร์มที่ฉันรับผิดชอบ)"
+            desc="ติดตามความคืบหน้าการขนส่ง เฉพาะแผนของฟาร์ม/SITE ที่คุณรับผิดชอบ"
           />
         </div>
       </main>

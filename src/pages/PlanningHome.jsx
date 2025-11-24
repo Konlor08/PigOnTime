@@ -1,3 +1,4 @@
+// src/pages/PlanningHome.jsx
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import supabase from "../supabaseClient";
@@ -82,7 +83,7 @@ export default function PlanningHome() {
             desc="บันทึกและติดตามปัญหาที่พบระหว่างปฏิบัติงาน อ้างอิงตามแผนที่อัปโหลด"
           />
           <Card
-            to="/planning/transport"
+            to="/planning/transport" // -> ต้อง map กับ TransportTracking ใน AppRouter
             title="สถานะการขนส่ง"
             desc="ติดตามความคืบหน้าการขนส่ง เทียบกับแผนงานที่อัปโหลด"
           />

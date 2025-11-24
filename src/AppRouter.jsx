@@ -22,12 +22,11 @@ import AdminActivateFarms from "./pages/admin/AdminActivateFarms";
 /* ---------- planning ---------- */
 import PlanningHome from "./pages/PlanningHome.jsx";
 import UploadPlanning from "./pages/UploadPlanning.jsx";
-import planningdesk from "./pages/Planningdesk.jsx";
+// import PlanningDesk from "./pages/Planningdesk.jsx"; // ไม่ใช้แล้ว
 import PlanningReportIssues from "./pages/PlanningReportIssues.jsx";
 import PlanningActivateFarms from "./pages/PlanningActivateFarms";
 
-
-/* ---------- AH  ---------- */
+/* ---------- AH ---------- */
 import AHHome from "./pages/AHHome.jsx";
 import AHFarmAdd from "./pages/AHFarmAdd.jsx";
 import LinkAHFarms from "./pages/LinkAHFarms.jsx";
@@ -35,11 +34,12 @@ import AHLinkFarmFactory from "./pages/AHLinkFarmFactory.jsx";
 import AHFarmGPS from "./pages/AHFarmGPS.jsx";
 import AHFactoryGPS from "./pages/AHFactoryGPS.jsx";
 import AHRoutePhotosLite from "./pages/AHRoutePhotosLite.jsx";
-import AHPlanDocsLite from "./pages/AHPlanDocsLite.jsx" ;
+import AHPlanDocsLite from "./pages/AHPlanDocsLite.jsx";
 import AHCatchTeamLite from "./pages/AHCatchTeamLite.jsx";
 import AHReportIssuesLite from "./pages/AHReportIssuesLite.jsx";
-import AHPlanStatus from "./pages/AHPlanStatus.jsx";
-import AHDesk from "./pages/AHDesk.jsx";
+import AHDesk from "./pages/AHDesk.jsx"; // ยังเก็บไว้ได้ (แม้ตอนนี้ไม่ได้ใช้ใน route)
+import TransportTracking from "./pages/TransportTracking.jsx";
+import AHTransportTracking from "./pages/AHTransportTracking.jsx";
 
 /* ---------- Factory ---------- */
 import FactoryDesk from "./pages/FactoryDesk.jsx";
@@ -47,14 +47,8 @@ import FactoryDesk from "./pages/FactoryDesk.jsx";
 /* ---------- Driver ---------- */
 import DriverDesk from "./pages/DriverDesk.jsx";
 
-/* ---------- Manager ---------- */
-import ManagerDesk from "./pages/ManagerDesk.jsx";
-
-
 /* ---------- Catching ---------- */
 import CatchingDesk from "./pages/CatchingDesk.jsx";
-
-/* ---------- driver ---------- */
 
 /* ---------- helpers ---------- */
 function getUser() {
@@ -71,6 +65,7 @@ function PrivateRoute({ allow = [] }) {
 
   const roleLower = String(u.role || "").toLowerCase();
   const allowLower = allow.map((r) => String(r).toLowerCase());
+
   if (allowLower.length && !allowLower.includes(roleLower)) {
     return <Navigate to="/login" replace />;
   }
@@ -105,12 +100,12 @@ export default function AppRouter() {
       <Route element={<PrivateRoute allow={["planning"]} />}>
         <Route path="/planning" element={<PlanningHome />} />
         <Route path="/planning/upload" element={<UploadPlanning />} />
-        <Route path="/planning/transport" element={<planningdesk />} />
-        <Route path="/planning/issues"element ={<PlanningReportIssues />} />
+        <Route path="/planning/transport" element={<TransportTracking />} />
+        <Route path="/planning/issues" element={<PlanningReportIssues />} />
         <Route path="/planning/farm-activate" element={<PlanningActivateFarms />} />
       </Route>
 
-      {/* animal husbandry (ใหม่) */}
+      {/* animal husbandry */}
       <Route element={<PrivateRoute allow={["animalhusbandry"]} />}>
         <Route path="/ah" element={<AHHome />} />
         <Route path="/ah/farm/add" element={<AHFarmAdd />} />
@@ -122,29 +117,29 @@ export default function AppRouter() {
         <Route path="/ah/docs/upload" element={<AHPlanDocsLite />} />
         <Route path="/ah/catch/confirm" element={<AHCatchTeamLite />} />
         <Route path="/ah/issues" element={<AHReportIssuesLite />} />
-        <Route path="/ah/status" element={<AHDesk />} />
+        {/* การ์ด “สถานะการขนส่ง (ฟาร์มที่ฉันรับผิดชอบ)” */}
+        <Route path="/ah/transport" element={<AHTransportTracking />} />
       </Route>
 
       {/* catching */}
       <Route element={<PrivateRoute allow={["catching"]} />}>
-      <Route path="/catching" element={<CatchingDesk />} />
+        <Route path="/catching" element={<CatchingDesk />} />
       </Route>
 
       {/* Driver */}
-      <Route element={<PrivateRoute allow={["driver"]}/>}>
+      <Route element={<PrivateRoute allow={["driver"]} />}>
         <Route path="/driver" element={<DriverDesk />} />
-       </Route>
+      </Route>
 
       {/* Factory */}
-      <Route element={<PrivateRoute allow={["factory"]}/>}>
+      <Route element={<PrivateRoute allow={["factory"]} />}>
         <Route path="/factory" element={<FactoryDesk />} />
-      </Route> 
+      </Route>
 
-       {/* Manager */}
-      <Route element={<PrivateRoute allow={["manager"]}/>}>
-        <Route path="/manager" element={<ManagerDesk />} />
-      </Route> 
-
+      {/* Manager ใช้ TransportTracking (รวมทุก site) */}
+      <Route element={<PrivateRoute allow={["manager"]} />}>
+        <Route path="/manager" element={<TransportTracking />} />
+      </Route>
 
       {/* fallback */}
       <Route path="*" element={<Navigate to="/login" replace />} />
