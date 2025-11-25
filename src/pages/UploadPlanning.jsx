@@ -75,8 +75,8 @@ const ALLOWED_COLS = new Set([
   "pk",
   "file_name",
   "file_id",
-  "site",         // ✅ ใช้คอลัมน์จริงใน DB (ตัวพิมพ์เล็ก)
-  "SITE",         // (อนุโลมกรณีถูกแมปมาก่อน แต่สุดท้ายจะถูกแปลงเป็น "site")
+  "site", // ✅ ใช้คอลัมน์จริงใน DB (ตัวพิมพ์เล็ก)
+  "SITE", // (อนุโลมกรณีถูกแมปมาก่อน แต่สุดท้ายจะถูกแปลงเป็น "site")
   "index_no",
   "delivery_date",
   "delivery_time",
@@ -210,6 +210,15 @@ export default function UploadPlanning() {
     const t = setTimeout(() => setMsg(""), 3000);
     return () => clearTimeout(t);
   }, [msg]);
+
+  // ✅ นับแถวที่ยังไม่มี factory (ใช้เตือน + tooltip)
+  const missingFactoryCount = useMemo(
+    () =>
+      prepRows.filter(
+        (r) => !r.factory || String(r.factory).trim() === ""
+      ).length,
+    [prepRows]
+  );
 
   const handleFileChange = (e) => {
     setErr("");
@@ -354,8 +363,13 @@ export default function UploadPlanning() {
       return;
     }
 
-    if (!window.confirm(`ยืนยันนำเข้าข้อมูลทั้งหมด ${prepRows.length} แถว?`))
-      return;
+    // ✅ เตือนเพิ่มกรณีฟาร์มยังไม่มีโรงงาน (factory)
+    let confirmMsg = `ยืนยันนำเข้าข้อมูลทั้งหมด ${prepRows.length} แถว?`;
+    if (missingFactoryCount > 0) {
+      confirmMsg += `\n\n⚠️ มี ${missingFactoryCount} แถวที่ยังไม่ได้ระบุโรงงาน (factory)\nระบบจะพยายาม map จากความสัมพันธ์ฟาร์ม-โรงงานในฐานข้อมูล\nกรณีมีการอัปเดตความสัมพันธ์ล่าสุด โปรดตรวจสอบให้ถูกต้องก่อนนำเข้า`;
+    }
+
+    if (!window.confirm(confirmMsg)) return;
 
     setLoading(true);
     setMsg("");
@@ -398,7 +412,9 @@ export default function UploadPlanning() {
       {/* Header */}
       <header className="bg-amber-500 text-white">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">อัปโหลดแผน (พรีวิว → นำเข้า)</h1>
+          <h1 className="text-xl font-semibold">
+            อัปโหลดแผน (พรีวิว → นำเข้า)
+          </h1>
           <button
             onClick={() => navigate("/planning")}
             className="rounded-md bg-white/20 px-4 py-1 text-sm hover:bg-white/30"
@@ -426,7 +442,9 @@ export default function UploadPlanning() {
         <div className="bg-white rounded-xl border border-amber-200 shadow-sm p-4 mb-6">
           <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
             <div className="flex-1">
-              <label className="block text-sm text-gray-600 mb-1">เลือกไฟล์</label>
+              <label className="block text-sm text-gray-600 mb-1">
+                เลือกไฟล์
+              </label>
               <input
                 type="file"
                 accept=".xlsx,.xls,.csv"
@@ -440,7 +458,8 @@ export default function UploadPlanning() {
               )}
               {extraCols.length > 0 && (
                 <p className="text-sm text-amber-700 mt-2">
-                  ⚠️ พบคอลัมน์ที่ไม่อยู่ใน DB: <b>{extraCols.join(", ")}</b>
+                  ⚠️ พบคอลัมน์ที่ไม่อยู่ใน DB:{" "}
+                  <b>{extraCols.join(", ")}</b>
                 </p>
               )}
             </div>
@@ -466,8 +485,16 @@ export default function UploadPlanning() {
 
         {/* Preview */}
         <div className="bg-white rounded-xl border border-amber-200">
-          <div className="px-4 py-2 bg-amber-100 border-b">
+          <div className="px-4 py-2 bg-amber-100 border-b flex items-center gap-2">
             <b>พรีวิวข้อมูล</b> ({prepRows.length} แถว)
+            {missingFactoryCount > 0 && (
+              <span
+                className="text-xs text-amber-700"
+                title="ฟาร์มแต่ละแถวควรมีโรงงาน (factory) ที่ชัดเจน ถ้าเว้นว่างระบบจะอาศัยความสัมพันธ์ฟาร์ม-โรงงานในฐานข้อมูลที่อาจถูกอัปเดตภายหลัง"
+              >
+                ⚠️ มี {missingFactoryCount} แถวที่ยังไม่มีโรงงาน (factory)
+              </span>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm whitespace-nowrap">
@@ -477,6 +504,14 @@ export default function UploadPlanning() {
                   {columns.map((c) => (
                     <th key={c} className="px-3 py-2 text-left">
                       {c}
+                      {c === "factory" && (
+                        <span
+                          className="ml-1 text-xs text-amber-700 cursor-help"
+                          title="โรงงาน (factory) จะใช้ประกอบกับความสัมพันธ์ฟาร์ม-โรงงาน ในกรณีมีการอัปเดต relation ใหม่ โปรดตรวจสอบให้ตรงกับโรงงานจริง"
+                        >
+                          ⓘ
+                        </span>
+                      )}
                     </th>
                   ))}
                   <th className="px-3 py-2"></th>
@@ -490,15 +525,30 @@ export default function UploadPlanning() {
                       {columns.map((c) => (
                         <td key={c} className="px-3 py-2">
                           {["pk", "file_name"].includes(c) ? (
-                            <span className="text-gray-500">{r[c] ?? ""}</span>
+                            <span className="text-gray-500">
+                              {r[c] ?? ""}
+                            </span>
                           ) : (
                             <input
-                              className="border rounded px-2 py-1 w-44"
+                              className={`border rounded px-2 py-1 w-44 ${
+                                c === "factory" &&
+                                (!r.factory ||
+                                  String(r.factory).trim() === "")
+                                  ? "border-amber-400 bg-amber-50"
+                                  : ""
+                              }`}
                               value={r[c] ?? ""}
                               onChange={(e) =>
                                 handleCellChange(i, c, e.target.value)
                               }
                               placeholder={c}
+                              title={
+                                c === "factory" &&
+                                (!r.factory ||
+                                  String(r.factory).trim() === "")
+                                  ? "ยังไม่ได้ระบุโรงงาน (factory) หากปล่อยว่างจะอิงจาก relation ฟาร์ม-โรงงาน ใน DB"
+                                  : undefined
+                              }
                             />
                           )}
                         </td>
